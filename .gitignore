@@ -1,0 +1,14 @@
+*~
+*.egg-info
+*.pyc
+__pycache__
+.python-version
+.mypy_cache/
+.ruff_cache/
+env/
+.env/
+venv/
+.venv/
+.DS_Store
+.vs/
+.vscode/
