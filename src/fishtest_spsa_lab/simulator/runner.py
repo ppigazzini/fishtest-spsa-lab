@@ -11,6 +11,8 @@ import numpy as np
 
 from fishtest_spsa_lab.simulator.config import (
     ELO_CLIP_RANGE,
+    GAMES_PER_CONCURRENCY_UNIT,
+    GAMES_PER_PAIR,
     LOG_INTERVAL,
     SPSAConfig,
     objective_function,
@@ -364,8 +366,10 @@ class AsyncSpsaRunner(SpsaRunner):
         # Determine batch size in pairs for this worker
         if self.config.variable_batch_size:
             tc_ratio = max(1, round(self.config.tc_ratio))
-            batch_size_games = worker.concurrency * 4 * tc_ratio
-            batch_size_pairs = max(1, batch_size_games // 2)
+            batch_size_games = (
+                worker.concurrency * GAMES_PER_CONCURRENCY_UNIT * tc_ratio
+            )
+            batch_size_pairs = max(1, batch_size_games // GAMES_PER_PAIR)
         else:
             batch_size_pairs = self.config.batch_size
 

@@ -24,10 +24,17 @@ import matplotlib.pyplot as plt
 
 from .common import (
     Line,
-    compute_pentanomial_moments,
     end_adjacent_shuffle,
     make_schedule,
+    mu2_hat,
     plot_many,
+    reconstruct_x_prev,
+    sf_weighting_update,
+    update_mu2_stats,
+)
+from .validate_variance import (
+    InitStats,
+    compute_init_stats_from_prior,
 )
 
 # ----- data models -----
@@ -81,31 +88,7 @@ class Series:
     theta: list[float]
 
 
-@dataclass(slots=True)
-class InitStats:
-    """Precomputed initialization aggregates (virtual prior), passed into functions."""
-
-    reports: float = 0.0
-    sum_n: float = 0.0
-    sum_s: float = 0.0
-    sum_s2_over_n: float = 0.0
-
-
 # ----- core math -----
-
-
-def reconstruct_x_prev(theta_prev: float, z_prev: float, beta1: float) -> float:
-    """Reconstruct x_prev from theta_prev and z_prev."""
-    # If beta1 == 0, we won't call this; x=z is used directly.
-    return (theta_prev - (1.0 - beta1) * z_prev) / beta1
-
-
-def sf_weighting_update(glob: GlobalState, n: int, lr: float) -> float:
-    """Update schedule-free weighting."""
-    # schedule-free mass increment
-    report_weight = lr * n
-    glob.sf_weight_sum += report_weight
-    return report_weight / glob.sf_weight_sum if glob.sf_weight_sum > 0 else 1.0
 
 
 def adam_k(n: int, beta2: float) -> float:
@@ -139,42 +122,6 @@ def adam_v_closed_form(  # noqa: PLR0913
         v_hat = v_new
     denom = math.sqrt(v_hat) + eps
     return v_new, denom
-
-
-# ----- online μ2 estimation (report-level only: uses N and sum s) -----
-
-
-def _mu_hat(glob: GlobalState) -> float:
-    # Block-average mean per pair: μ̂ = (Σ s_i) / (Σ N_i)
-    return (glob.sum_s / glob.sum_n) if glob.sum_n > 0.0 else 0.0
-
-
-def mu2_hat(glob: GlobalState) -> float:
-    """Exact block-averaged estimator, using only (N, s) per report.
-
-    E_blocks[s^2 / N] = σ^2 + μ^2 E_blocks[N]
-    ⇒ σ̂^2 = E_s2_over_N - μ̂^2 E_N
-    ⇒ μ̂2  = μ̂^2 + σ̂^2
-    """  # noqa: RUF002
-    # Before any reports, use the configured initial guess
-    if glob.reports <= 0.0:
-        return glob.mu2_init
-    mu = _mu_hat(glob)
-    e_s2_over_n = glob.sum_s2_over_n / glob.reports
-    e_n = glob.sum_n / glob.reports
-    sigma2 = e_s2_over_n - (mu * mu) * e_n
-    sigma2 = max(sigma2, 0.0)  # numerical guard
-    mu2 = mu * mu + sigma2
-    # clamp to plausible range for outcomes in [-2..2]
-    return min(max(mu2, 1e-12), 4.0)
-
-
-def update_mu2_stats(glob: GlobalState, n: int, s: float) -> None:
-    """Update estimator AFTER using it for the current report."""
-    glob.reports += 1.0
-    glob.sum_n += float(n)
-    glob.sum_s += float(s)
-    glob.sum_s2_over_n += (float(s) * float(s)) / max(float(n), 1.0)
 
 
 # ----- macro + micro -----
@@ -323,10 +270,12 @@ def build_const_mean_online_sequences(
         g2 = _mu2_hat_local()
         seqs.append(([mean] * n, [g2] * n))
         # update stats after using them for this block
+        if n <= 0:
+            continue
         reports += 1.0
         sum_n += float(n)
         sum_s += float(s)
-        sum_s2_over_n += (float(s) * float(s)) / max(float(n), 1.0)
+        sum_s2_over_n += (float(s) * float(s)) / float(n)
     return seqs
 
 
@@ -477,22 +426,6 @@ def main() -> None:
     )
     prior_reports: float = 5.0  # 0.0 disables warm start
     prior_mean_n: float = (n_min + n_max) / 2.0
-
-    # Compute InitStats externally; only aggregates are passed below.
-    def compute_init_stats_from_prior(
-        p5_: tuple[float, float, float, float, float],
-        reports_: float,
-        mean_n_: float,
-    ) -> InitStats:
-        if reports_ <= 0.0 or mean_n_ <= 0.0:
-            return InitStats()
-        mu_p, _mu2_p, var_p = compute_pentanomial_moments(p5_)
-        return InitStats(
-            reports=reports_,
-            sum_n=reports_ * mean_n_,
-            sum_s=reports_ * mean_n_ * mu_p,
-            sum_s2_over_n=reports_ * (var_p + mean_n_ * (mu_p * mu_p)),
-        )
 
     init_stats = compute_init_stats_from_prior(
         prior_p5,

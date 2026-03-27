@@ -211,7 +211,6 @@ def estimate_noise_ball_isotropic_end(
     var_net_score = float(n_pairs) * float(var0)
 
     # grad_signal = net_score / 2 (same convention as the toy script).
-    slope_grad_signal_per_elo = slope_net_score_per_elo / 2.0
     var_grad_signal = var_net_score / 4.0
 
     # Constant gain proxy.
@@ -771,21 +770,21 @@ def main(argv: list[str] | None = None) -> int:
                     lrnorm_arr,
                     label=(
                         "elo_drop_stationary_mean (a="
-                        f"{float(lrnorm_exponent_stationary):.3g})"
+                        f"{float(lrnorm_exponent_stationary or 0):.3g})"
                     ),
                 )
                 ax1.plot(
                     ns_arr,
                     lrnorm_1000_arr,
                     label=(
-                        f"elo_drop_after_1000 (a={float(lrnorm_exponent_1000):.3g})"
+                        f"elo_drop_after_1000 (a={float(lrnorm_exponent_1000 or 0):.3g})"
                     ),
                 )
                 ax1.plot(
                     ns_arr,
                     lrnorm_10000_arr,
                     label=(
-                        f"elo_drop_after_10000 (a={float(lrnorm_exponent_10000):.3g})"
+                        f"elo_drop_after_10000 (a={float(lrnorm_exponent_10000 or 0):.3g})"
                     ),
                 )
             else:

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from fishtest_spsa_lab.simulator.config import SPSAConfig
+from fishtest_spsa_lab.simulator.optimizer import OPTIMIZER_REGISTRY
 from fishtest_spsa_lab.simulator.runner import (
     AsyncSpsaRunner,
     SpsaRunner,
@@ -209,20 +210,7 @@ def plot_basic_results(result: dict) -> None:  # noqa: C901, PLR0912, PLR0915
 
 def main() -> None:
     """Run the main entry point."""
-    optimizers = [
-        "spsa",
-        "spsa-block",
-        "spsa-penta",
-        "spsa-cwd",
-        "accelerated-spsa",
-        "sf-sgd",
-        "sf-sgd-block",
-        "sf-adam",
-        "sf-adam-block",
-        "adam",
-        "adam-block",
-        "ademamix",
-    ]
+    optimizers = list(OPTIMIZER_REGISTRY)
 
     # Common configuration parameters
     num_pairs = 30_000

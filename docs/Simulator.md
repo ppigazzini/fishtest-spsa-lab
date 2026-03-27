@@ -65,7 +65,7 @@ On the fishtest side, we model a developer who:
 * Believes the bowl has anisotropy `w_dev[i]` (from `ParamGroup.w_dev`).
     If `w_dev[i] = w_true[i]` they are perfectly calibrated; if
     `w_dev[i] != w_true[i]` they are mis-compensated in that dimension.
-* Chooses a target Elo loss `c_elo_gap` for a "one‑step" move in a single
+* Chooses a target Elo loss `c_elo_gap` for a "one-step" move in a single
     dimension.
 * Uses a simple "step is X% of range" rule with `c_fraction` (typically
     `0.05`).
@@ -90,9 +90,9 @@ DeltaE_true_i = k_elo * w_true[i] * c_i**2
 
 so:
 
-* `w_true[i] > w_dev[i]`  ⇒ the dev underestimates curvature and steps too far
+* `w_true[i] > w_dev[i]`  => the dev underestimates curvature and steps too far
     (larger Elo risk than intended).
-* `w_true[i] < w_dev[i]`  ⇒ the dev overestimates curvature and is overly
+* `w_true[i] < w_dev[i]`  => the dev overestimates curvature and is overly
     conservative (smaller Elo change than intended).
 
 #### 1.1.2 Geometry vs developer summary
@@ -160,16 +160,16 @@ block-start gain:
 
 In code, the `SPSAConfig.optimizer` field accepts:
 
-*   `"spsa"` — standard SPSA macro (uses block-start gain `a_k / c_k`).
-*   `"spsa-block"` — corrected SPSA macro (uses mean gain over the block; block-corrected SPSA).
-*   `"spsa-cwd"` — SPSA + centered cautious weight decay (CWD) (see below).
-*   `"sf-sgd"` — naive Schedule-Free SGD macro (no block compensation in the Polyak surrogate).
-*   `"sf-sgd-block"` — Schedule-Free SGD using a block-corrected macro update (closed-form triangular weighting for `x`).
-*   `"sf-adam"` — naive Schedule-Free Adam macro (per-block EMA of `g_φ_mean^2`, no `k(N, β₂)` intra-block damping).
-*   `"sf-adam-block"` — Schedule-Free Adam using a μ₂-based block-corrected macro update (closed-form `v`/`k(N, β₂)` path).
-*   `"adam"` — textbook Adam macro using micro const-mean steps inside each block.
-*   `"adam-block"` — block-Adam macro using closed-form EMAs over block-mean SPSA signals.
-*   `"ademamix"` — AdEMAMix optimizer driven by SPSA-style signals.
+*   `"spsa"` -- standard SPSA macro (uses block-start gain `a_k / c_k`).
+*   `"spsa-block"` -- corrected SPSA macro (uses mean gain over the block; block-corrected SPSA).
+*   `"spsa-cwd"` -- SPSA + centered cautious weight decay (CWD) (see below).
+*   `"sf-sgd"` -- naive Schedule-Free SGD macro (no block compensation in the Polyak surrogate).
+*   `"sf-sgd-block"` -- Schedule-Free SGD using a block-corrected macro update (closed-form triangular weighting for `x`).
+*   `"sf-adam"` -- naive Schedule-Free Adam macro (per-block EMA of `g_φ_mean^2`, no `k(N, β2)` intra-block damping).
+*   `"sf-adam-block"` -- Schedule-Free Adam using a μ2-based block-corrected macro update (closed-form `v`/`k(N, β2)` path).
+*   `"adam"` -- textbook Adam macro using micro const-mean steps inside each block.
+*   `"adam-block"` -- block-Adam macro using closed-form EMAs over block-mean SPSA signals.
+*   `"ademamix"` -- AdEMAMix optimizer driven by SPSA-style signals.
 
 #### 2.1.1 SPSA + centered cautious weight decay (`SPSACWD`)
 
@@ -189,7 +189,7 @@ Definitions at a report update:
     ```text
     delta = theta_k - theta_start
     ```
-- φ-space learning rate (as documented in `docs/ALGORITHMS.md`):
+- φ-space learning rate (as documented in `docs/Algorithms.md`):
     ```text
     r_k = a_k / (c_k**2)
     ```
@@ -198,8 +198,8 @@ Mask (cautious gating):
 
 - Let `u_t` be the gradient-like direction and `step` the update direction.
     In SPSA here, we use `u_t = -step`.
-- Apply decay only when `u_t ⊙ delta >= 0` (elementwise), i.e. only where the decay direction agrees with the gradient direction.
-    This is equivalent to `step ⊙ delta <= 0`.
+- Apply decay only when `u_t * delta >= 0` (elementwise), i.e. only where the decay direction agrees with the gradient direction.
+    This is equivalent to `step * delta <= 0`.
 
 Update:
 
@@ -212,7 +212,7 @@ theta_{k+1} = clip(theta_k + step - decay)
 Notes:
 
 - `lambda_cwd` comes from `SPSAConfig.spsa_cwd.lambda_`.
-- Because `r_k` is the φ-space learning rate, scaling decay by `r_k` makes the decay term consistent with the repo’s θ↔φ mapping.
+- Because `r_k` is the φ-space learning rate, scaling decay by `r_k` makes the decay term consistent with the repo's θ↔φ mapping.
 
 ### 2.2. Schedule-Free SGD (`SFSGD`)
 Adapted from "The Road to Schedule-Free Training". It removes the learning rate schedule (`a_k`) by using Polyak averaging.
@@ -235,8 +235,10 @@ Combines Schedule-Free averaging with Adam's adaptive moments.
     *   Treats each report as a block with per-pair mean gradient `g_φ_mean = (net_wins / N) * flip` and updates `v` as a simple EMA of `g_φ_mean^2`.
     *   Takes a single block step `step_phi = (lr * net_wins * flip) / denom` (no intra-block damping), so effective step size grows roughly linearly with `N` and depends strongly on the batch-size distribution.
 *   **Block-corrected macro (`sf-adam-block`)**:
-    *   Maintains a global μ₂ estimate from report-level aggregates `(N_i, S_i, S_i^2 / N_i)` and updates `v` in closed form over each block using that μ₂, with bias correction based on the total number of processed pairs.
+    *   Maintains a global scalar mu2 estimate from report-level aggregates `(N_i, S_i, S_i^2 / N_i)` and updates `v` in closed form over each block using that mu2, with bias correction based on the total number of processed pairs.
     *   Scales the block step by `k(N, beta2)` so one macro step matches N micro const-mean steps in expectation, making it much more stable across varying `N` and closely aligned with the macro path analyzed in the schedule-free Adam notes.
+
+**Semantic gap**: `SFAdam` tracks a per-parameter `v` vector (EMA of `g_phi_mean^2`); `SFAdamBlock` replaces this with a single global scalar mu2 derived from report-level Welford aggregates. The two second-moment estimates converge for large K but can diverge early in a run, especially when batch sizes vary widely.
 
 ### 2.4. Classic Adam (`Adam` and `AdamBlock`)
 
@@ -255,18 +257,18 @@ gradient in the Adam sense.
 
 Two macros are provided:
 
-*   **Adam (`"adam"`)** — micro const-mean Adam:
+*   **Adam (`"adam"`)** -- micro const-mean Adam:
     *   For each report, with length `N` and `net_wins`, we compute `grad` as
         above and then take **N textbook Adam steps** inside the block with
         that constant `grad`.
-    *   This matches the "micro const-mean" Adam path studied in `docs/ALGORITHMS.md`
+    *   This matches the "micro const-mean" Adam path studied in `docs/Algorithms.md`
         (Adam section) and `analysis/validate_adam.py`: the optimizer applies Adam once per
         pair, but the per-pair gradient is the block mean.
     *   Because it truly does N micro steps, its effective behavior depends on
         N in the same way classic Adam does when you change how many updates
         you take per batch.
 
-*   **AdamBlock (`"adam-block"`)** — block-Adam approximation:
+*   **AdamBlock (`"adam-block"`)** -- block-Adam approximation:
     *   Uses the same gradient proxy `grad`, but does **one block update per
         report** instead of replaying N micro steps.
     *   Internally, it:
@@ -356,7 +358,7 @@ Simulates the distributed, asynchronous nature of Fishtest with a pool of hetero
         *   Update the global optimizer state and increment the processed pairs counter.
         *   Immediately schedule a new job for the freed worker (if pairs remain).
 
-## 4. Simulation Recipes
+## 4. How-to Recipes
 
 These recipes assume you have installed the project editable so that the
 `run-simulation` console script is available (from the repo root:
@@ -450,13 +452,13 @@ Out-of-order: share=2707.20% p50=+0 p90=+36 p99=+36 (pairs); norm p50=+0.00 p90=
 The fields are:
 
 - `lag = iter_local - (pairs_processed + 1)` at completion. Positive means the
-    job finished “early” (ahead of the head of line); negative means it finished
-    “late”. Units: pairs.
+    job finished "early" (ahead of the head of line); negative means it finished
+    "late". Units: pairs.
 - `share` is the pair-weighted percentage `100 * sum_i |lag_i| * batch_pairs_i / total_pairs`.
     It measures how much of the total work budget (in pairs) was displaced from
     the serialized order. Shares can exceed 100% when jobs repeatedly race ahead
     of their expected slot (e.g., tiny 2-pair batches with 20 workers can push
-    share into the 10⁴% range).
+    share into the 10^4% range).
 - `p50/p90/p99 (pairs)` are percentiles of raw `lag` in pairs; the higher
     percentiles expose straggler-style deviations.
 - `norm pXX (batches)` is the percentile of `lag / batch_pairs_i`, giving a

@@ -65,12 +65,18 @@ def a_k(schedule: SpsaSchedule, k: int) -> float:
 
 
 def c_k(schedule: SpsaSchedule, k: int) -> float:
-    """Compute the perturbation size c_k at step k."""
+    """Compute the perturbation size c_k at step k.
+
+    Precondition: k >= 1 (k = 0 causes ZeroDivisionError when gamma > 0).
+    """
     return schedule.c / (k**schedule.gamma)
 
 
 def gain(schedule: SpsaSchedule, k: int) -> float:
-    """Compute the gain g(k) = a_k / c_k at step k."""
+    """Compute the gain g(k) = a_k / c_k at step k.
+
+    Precondition: k >= 1 (c_k is undefined at k = 0).
+    """
     # g(k) = a_k / c_k
     ak = a_k(schedule, k)
     ck = c_k(schedule, k)

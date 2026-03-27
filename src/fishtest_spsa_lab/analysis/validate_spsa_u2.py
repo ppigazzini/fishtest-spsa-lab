@@ -21,7 +21,14 @@ if TYPE_CHECKING:
 
 import matplotlib.pyplot as plt
 
-from .common import Line, compute_a_from_outcomes, plot_many
+from .common import (
+    Line,
+    compute_a_from_outcomes,
+    mu2_hat,
+    plot_many,
+    update_mu2_stats,
+)
+from .validate_spsa import SpsaSchedule, mean_gain_over_block
 from .validate_variance import (
     InitStats,
     compute_init_stats_from_prior,
@@ -41,7 +48,7 @@ class GlobalState:
 
 @dataclass(slots=True)
 class Mu2State:
-    """Online μ2 estimator using only (N, s) per report."""
+    """Online mu2 estimator using only (N, s) per report."""
 
     reports: float = 0.0
     sum_n: float = 0.0
@@ -51,76 +58,12 @@ class Mu2State:
 
 
 @dataclass(slots=True)
-class SpsaSchedule:
-    """Defines the SPSA schedule parameters."""
-
-    a: float
-    a_stability: float
-    alpha: float
-    c: float
-    gamma: float
-
-
-@dataclass(slots=True)
 class Series:
     """Holds the time series data for plotting."""
 
     t_pairs: list[int]
     theta: list[float]
     mu2: list[float] | None = None
-
-
-# ----- μ2 estimator (report-level, same math as SFAdamBlock) -----
-
-
-def mu2_hat(state: Mu2State) -> float:
-    """Estimate E[g^2] from report-level aggregates."""
-    if state.reports <= 0.0:
-        return state.mu2_init
-    mu = (state.sum_s / state.sum_n) if state.sum_n > 0.0 else 0.0
-    e_s2_over_n = state.sum_s2_over_n / state.reports
-    e_n = state.sum_n / state.reports
-    sigma2 = e_s2_over_n - (mu * mu) * e_n
-    sigma2 = max(sigma2, 0.0)
-    mu2 = mu * mu + sigma2
-    return min(max(mu2, 1e-12), 4.0)
-
-
-def update_mu2_stats(state: Mu2State, n: int, s: float) -> None:
-    """Update μ2 aggregates AFTER using the current estimate."""
-    if n <= 0:
-        return
-    state.reports += 1.0
-    state.sum_n += float(n)
-    state.sum_s += float(s)
-    state.sum_s2_over_n += (float(s) * float(s)) / float(n)
-
-
-# ----- SPSA gain math -----
-
-
-def a_k(schedule: SpsaSchedule, k: int) -> float:
-    """Return the SPSA $a_k$ term for pair index $k$."""
-    return schedule.a / ((schedule.a_stability + k) ** schedule.alpha)
-
-
-def c_k(schedule: SpsaSchedule, k: int) -> float:
-    """Return the SPSA $c_k$ term for pair index $k$."""
-    return schedule.c / (k**schedule.gamma)
-
-
-def gain(schedule: SpsaSchedule, k: int) -> float:
-    """Return the SPSA gain $a_k / c_k$ for pair index $k$."""
-    ak = a_k(schedule, k)
-    ck = c_k(schedule, k)
-    return ak / ck if ck != 0.0 else 0.0
-
-
-def mean_gain_over_block(schedule: SpsaSchedule, k0: int, n: int) -> float:
-    """Return mean gain over a block starting at $k_0$ with length $n$."""
-    if n <= 0:
-        return 0.0
-    return sum(gain(schedule, k0 + j) for j in range(n)) / n
 
 
 # ----- macro updates -----

@@ -1,6 +1,6 @@
 # Rademacher scaling (why `sqrt(N)` and `1/sqrt(N)` show up)
 
-This document isolates the small amount of “high-dimensional geometry” math that tends to get mixed into SPSA scaling discussions.
+This document isolates the small amount of "high-dimensional geometry" math that tends to get mixed into SPSA scaling discussions.
 
 It is deliberately independent of Elo-bowl calibration choices (axis vs diagonal) and independent of how match noise is modeled.
 
@@ -23,7 +23,7 @@ Because every coordinate has magnitude 1:
 => ||δ||_2 = sqrt(N)
 ```
 
-So any update of the form “scalar × δ” has an L2 norm that grows like `sqrt(N)`.
+So any update of the form "scalar × δ" has an L2 norm that grows like `sqrt(N)`.
 
 ### 1.2 Random projections have RMS that does NOT grow with N
 
@@ -37,7 +37,7 @@ Reason: `E[δ_i δ_j]=0` for `i≠j` and `E[δ_i^2]=1`.
 
 So `<g,δ>` is typically of order `||g||_2`, not of order `N`.
 
-## 2) Two different “cosines” people mix up
+## 2) Two different "cosines" people mix up
 
 Let `||g||_2 > 0` and define the usual cosine between `g` and `δ`:
 
@@ -56,7 +56,7 @@ sqrt(E[cos_raw^2])
 = 1/sqrt(N)
 ```
 
-That is the clean statement “a random Rademacher direction is typically `~1/sqrt(N)` aligned with any fixed direction”.
+That is the clean statement "a random Rademacher direction is typically `~1/sqrt(N)` aligned with any fixed direction".
 
 ### 2.1 The SPSA-chosen update direction has positive alignment
 
@@ -77,7 +77,7 @@ cos_update := <g, u> / (||g||_2 * ||u||_2)
 So `E[cos_update] > 0` but still scales like `const / sqrt(N)`.
 For large N (CLT intuition), `E[cos_update] ≈ sqrt(2/pi)/sqrt(N)`.
 
-## 3) Why `1/sqrt(N)` is the natural “update-size normalization”
+## 3) Why `1/sqrt(N)` is the natural "update-size normalization"
 
 Many SPSA-style macros apply a single scalar signal to all coordinates with signs from `δ`.
 Because `||δ||_2 = sqrt(N)`, the L2 step size naturally grows like `sqrt(N)` unless you compensate.
@@ -88,7 +88,7 @@ A principled way to keep the L2 RMS step size roughly N-invariant (holding other
 scale the scalar signal by 1/||δ||_2 = 1/sqrt(N)
 ```
 
-This is the “Rademacher RMS” normalization.
+This is the "Rademacher RMS" normalization.
 
 ### Effective dimension variant
 

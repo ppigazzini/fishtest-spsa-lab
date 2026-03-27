@@ -19,6 +19,13 @@ MAX_INACTIVE_PLOTS: int = 5
 DEFAULT_ACTIVE_GROUP_SIZE: int = 2
 DEFAULT_INACTIVE_GROUP_SIZE: int = 10
 
+# Game/pair conversion: each game pair consists of two games.
+GAMES_PER_PAIR: int = 2
+# Fishtest heuristic: games dispatched per concurrency unit per TC ratio unit.
+GAMES_PER_CONCURRENCY_UNIT: int = 4
+# Normal-distribution z-score for 95th percentile (log-normal calibration).
+Z_95: float = 1.645
+
 
 @dataclass
 class ParamGroup:
@@ -393,9 +400,9 @@ class SPSAConfig:
         # mu is simply ln(median)
         mu = np.log(self.game_duration_median)
 
-        # 95th percentile = exp(mu + 1.645 * sigma)
-        # sigma = (ln(95th) - mu) / 1.645
-        sigma = (np.log(self.game_duration_95th) - mu) / 1.645
+        # 95th percentile = exp(mu + Z_95 * sigma)
+        # sigma = (ln(95th) - mu) / Z_95
+        sigma = (np.log(self.game_duration_95th) - mu) / Z_95
         return mu, sigma
 
     def __post_init__(self) -> None:

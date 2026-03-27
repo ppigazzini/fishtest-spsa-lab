@@ -65,16 +65,16 @@ Validates the standard SPSA update rule and how its batched "macro" update compa
 
 Plots in [src/fishtest_spsa_lab/analysis/validate_spsa.py](src/fishtest_spsa_lab/analysis/validate_spsa.py):
 
-- **Single schedule (Figure 1)** — θ vs pairs, legend order:
-    - `theta — micro real` (ground-truth sequential SPSA)
-    - `theta — micro mean` (theoretical bridge)
-    - `theta — macro` (corrected macro / production path)
-    - `theta — macro (uncorrected)` (incorrect baseline)
-- **Original vs shuffled (Figure 2)** — same four paths, for both original and end-adjacent–shuffled schedules:
-    - `… micro real (orig)`, `… micro real (shuf)`
-    - `… micro mean (orig)`, `… micro mean (shuf)`
-    - `… macro (orig)`, `… macro (shuf)`
-    - `… macro unc. (orig)`, `… macro unc. (shuf)`
+- **Single schedule (Figure 1)** -- θ vs pairs, legend order:
+    - `theta -- micro real` (ground-truth sequential SPSA)
+    - `theta -- micro mean` (theoretical bridge)
+    - `theta -- macro` (corrected macro / production path)
+    - `theta -- macro (uncorrected)` (incorrect baseline)
+- **Original vs shuffled (Figure 2)** -- same four paths, for both original and end-adjacent--shuffled schedules:
+    - `... micro real (orig)`, `... micro real (shuf)`
+    - `... micro mean (orig)`, `... micro mean (shuf)`
+    - `... macro (orig)`, `... macro (shuf)`
+    - `... macro unc. (orig)`, `... macro unc. (shuf)`
 
 ### 3.2. Schedule-Free SGD (`validate_sf_sgd.py`)
 Validates the schedule-free Polyak averaging logic.
@@ -87,14 +87,14 @@ Validates the schedule-free Polyak averaging logic.
 
 Plots in [src/fishtest_spsa_lab/analysis/validate_sf_sgd.py](src/fishtest_spsa_lab/analysis/validate_sf_sgd.py):
 
-- **Single schedule (Figure 1)** — three panels for `x`, `z`, and `theta` vs pairs; in each panel the legend order is:
-    - `… micro real`
-    - `… micro mean`
-    - `… macro`
-- **Original vs shuffled (Figure 2)** — same three paths for both schedules; in each panel:
-    - `… micro real (orig)`, `… micro real (shuf)`
-    - `… micro mean (orig)`, `… micro mean (shuf)`
-    - `… macro (orig)`, `… macro (shuf)`
+- **Single schedule (Figure 1)** -- three panels for `x`, `z`, and `theta` vs pairs; in each panel the legend order is:
+    - `... micro real`
+    - `... micro mean`
+    - `... macro`
+- **Original vs shuffled (Figure 2)** -- same three paths for both schedules; in each panel:
+    - `... micro real (orig)`, `... micro real (shuf)`
+    - `... micro mean (orig)`, `... micro mean (shuf)`
+    - `... macro (orig)`, `... macro (shuf)`
 
 ### 3.3. Schedule-Free Adam (`validate_sf_adam.py`)
 Validates the adaptive second-moment estimation and its block-wise approximation.
@@ -105,19 +105,19 @@ Validates the adaptive second-moment estimation and its block-wise approximation
     - [src/fishtest_spsa_lab/analysis/validate_variance.py](src/fishtest_spsa_lab/analysis/validate_variance.py) implements `OnlineReportStats`, which computes an exact block-averaged estimator using only `(N_i, s_i, s_i^2/N_i)`.
     - `validate_sf_adam.py` mirrors this logic via report-level aggregates plus an optional warm-start prior.
 - **Macro path**: One update per report using block summaries and closed-form Adam-style `v` evolution.
-- **Micro mean path**: Replays the same online μ² estimator at micro-step resolution, with `S_i / N_i` repeated `N_i` times.
+- **Micro mean path**: Replays the same online μ^2 estimator at micro-step resolution, with `S_i / N_i` repeated `N_i` times.
 - **Micro real path**: Full per-outcome schedule-free Adam with per-step `g` and `g^2`.
 
 Plots in [src/fishtest_spsa_lab/analysis/validate_sf_adam.py](src/fishtest_spsa_lab/analysis/validate_sf_adam.py):
 
-- **Single schedule (Figure 1)** — `x`, `z`, and `theta` vs pairs, legend order in each panel:
-    - `… micro real`
-    - `… micro mean`
-    - `… macro`
-- **Original vs shuffled (Figure 2)** — same three paths for original and shuffled schedules:
-    - `… micro real (orig)`, `… micro real (shuf)`
-    - `… micro mean (orig)`, `… micro mean (shuf)`
-    - `… macro (orig)`, `… macro (shuf)`
+- **Single schedule (Figure 1)** -- `x`, `z`, and `theta` vs pairs, legend order in each panel:
+    - `... micro real`
+    - `... micro mean`
+    - `... macro`
+- **Original vs shuffled (Figure 2)** -- same three paths for original and shuffled schedules:
+    - `... micro real (orig)`, `... micro real (shuf)`
+    - `... micro mean (orig)`, `... micro mean (shuf)`
+    - `... macro (orig)`, `... macro (shuf)`
 
 ### 3.4. Classic Adam (`validate_adam.py`)
 Validates a block-level Adam variant against textbook (per-outcome) Adam.
@@ -139,16 +139,16 @@ Validates a block-level Adam variant against textbook (per-outcome) Adam.
 
 Plots in [src/fishtest_spsa_lab/analysis/validate_adam.py](src/fishtest_spsa_lab/analysis/validate_adam.py):
 
-- **Single schedule (Figure 1)** — θ vs pairs, legend order:
-    - `theta — micro real`
-    - `theta — micro const-mean`
-    - `theta — macro const-mean`
-    - `theta — macro block-Adam`
-- **Original vs shuffled (Figure 2)** — same four paths for original and shuffled schedules:
-    - `… micro real (orig)`, `… micro real (shuf)`
-    - `… micro const-mean (orig)`, `… micro const-mean (shuf)`
-    - `… macro const-mean (orig)`, `… macro const-mean (shuf)`
-    - `… macro block-Adam (orig)`, `… macro block-Adam (shuf)`
+- **Single schedule (Figure 1)** -- θ vs pairs, legend order:
+    - `theta -- micro real`
+    - `theta -- micro const-mean`
+    - `theta -- macro const-mean`
+    - `theta -- macro block-Adam`
+- **Original vs shuffled (Figure 2)** -- same four paths for original and shuffled schedules:
+    - `... micro real (orig)`, `... micro real (shuf)`
+    - `... micro const-mean (orig)`, `... micro const-mean (shuf)`
+    - `... macro const-mean (orig)`, `... macro const-mean (shuf)`
+    - `... macro block-Adam (orig)`, `... macro block-Adam (shuf)`
 
 ### 3.5. Pentanomial Noise Charts (`validate_pentanomial.py`)
 
@@ -175,16 +175,16 @@ penta outcomes and tracks these histories:
 
 Plots in [src/fishtest_spsa_lab/analysis/validate_pentanomial.py](src/fishtest_spsa_lab/analysis/validate_pentanomial.py):
 
-- **Pentanomial asymmetry/mean** — two panels:
+- **Pentanomial asymmetry/mean** -- two panels:
     - Asymmetry panel: `EMA Asymmetry A` and `Cumulative Asymmetry A` vs `Pairs processed`.
     - Mean panel: `EMA Mean outcome mu` and `Cumulative Mean outcome mu` vs `Pairs processed`.
-- **Penta coefficient / gain scale** — one panel:
+- **Penta coefficient / gain scale** -- one panel:
         - `Cumulative penta r` and `Gain scale factor` vs `Pairs processed`.
 
 #### 3.5.1. validate-penta: Elo noise math (oracle score -> Elo)
 
 `validate-penta` can report the sampling noise of an Elo estimate derived from pentanomial counts.
-This answers: “If the true Elo is X, what Elo might I measure after a finite number of games?”
+This answers: "If the true Elo is X, what Elo might I measure after a finite number of games?"
 
 Units:
 
@@ -202,23 +202,23 @@ vendored pentamodel:
 - score_hat from counts:
     - `score_hat = (0*LL + 0.5*DL + 1*DD + 1.5*WD + 2*WW) / (2*M)`
 
-Then it converts score_hat to an Elo estimate using the pentamodel “oracle” conversion:
+Then it converts score_hat to an Elo estimate using the pentamodel "oracle" conversion:
 
 - `opponent_elo = PentaModel.elo_diff_from_score(score_hat)`
-- `Elo_hat = -opponent_elo` (sign flip so it matches this script’s `start_diff` convention)
+- `Elo_hat = -opponent_elo` (sign flip so it matches this script's `start_diff` convention)
 
-Why the Elo noise can look “surprisingly large”:
+Why the Elo noise can look "surprisingly large":
 
 - score_hat is an average, so its standard deviation shrinks like `1/sqrt(M)`.
 - but the score -> Elo mapping is nonlinear, and its slope depends strongly on the score.
     Near score 0.5 the slope is about 695 Elo per 1.0 score, and it becomes much steeper as score
     approaches 0 or 1.
 
-Delta-method (first-order) standard deviation used for the “Theory Elo_hat std” log:
+Delta-method (first-order) standard deviation used for the "Theory Elo_hat std" log:
 
 1) score_hat variance from points-per-pair variance:
 
-- Let `Y` be the random “points per pair” value.
+- Let `Y` be the random "points per pair" value.
 - `score_hat = mean(Y) / 2`
 - `Var(score_hat) = Var(Y) / (4*M)`
 
@@ -252,7 +252,7 @@ Key semantics:
 - **Unbounded objective / optimizer**: the toy objective is a smooth math function on `R^N` and the SPSA optimizer does not clamp parameters.
 - **Plot bounds are plot-only**: contour axes use a fixed range (defaults to `[0, 200]`) solely to make 2D plots readable.
 - **Diagonal/SPSA c calibration**: `--c-diag-elo-drop` chooses `c_end` so that the *actual SPSA perturbation* `theta ± c_end * delta` at the peak costs that many Elo (per run).
-- **Phi-space learning rate**: `--r-end` is the end-of-run learning rate in phi-normalized coordinates (see `docs/ALGORITHMS.md`). The theta step scales with `c_k`.
+- **Phi-space learning rate**: `--r-end` is the end-of-run learning rate in phi-normalized coordinates (see `docs/Algorithms.md`). The theta step scales with `c_k`.
 - **c_end construction** (dev-eigenbasis): the dev predicts curvature in the eigenbasis by choosing a *predicted* spectrum `lambda_dev` (often wrong in the tail), optionally applies i.i.d. lognormal noise to `lambda_dev` (then renormalizes to preserve trace), uses eigen-probes `c_z ∝ 1/sqrt(lambda_dev)`, maps that implied variance back into axis space using `U`, and applies one global rescale so the achieved diagonal/SPSA Elo drop matches `--c-diag-elo-drop` exactly.
     - True spectrum controls: `--spectrum-shape`, `--spectrum-exponent`.
     - Dev mismatch knobs: `--dev-spectrum-exponent`, `--dev-linear-tilt`, `--dev-log-sigma`, `--dev-seed`.
@@ -261,7 +261,7 @@ Key semantics:
 Output and KPIs:
 
 - The script logs a compact **schedule line**: `alpha`, `gamma`, `A`, and `total_pairs`.
-- It logs a **c_end preview** (first 1–2 dims) plus the achieved diagonal Elo drop and implied per-axis drops.
+- It logs a **c_end preview** (first 1--2 dims) plus the achieved diagonal Elo drop and implied per-axis drops.
 - It logs **curvature participation ratios**:
     - `N_eff_diag`: participation ratio of `diag(G)` (depends on U and the spectrum).
     - `N_eff_phi`: participation ratio of `diag(H_phi)` where `H_phi = C G C / X_SCALE^2`.
@@ -270,31 +270,9 @@ Output and KPIs:
     - best-at pairs (time-to-best), improvement per 1k pairs, drawdown, record highs
     - RMS normalized distance to the peak (unitless), runtime, and throughput
 
-Note on “smooth-looking” curves:
+Note on "smooth-looking" curves:
 
 - For very large `--num-batches`, the trajectory/value history is automatically downsampled to cap memory.
     This can visually smooth plots because intermediate noisy steps are not stored.
 - Useful controls:
     - `--batch-size-pairs`, `--num-batches`, `--seed`.
-
-## 4. Key Files
-
-- **[src/fishtest_spsa_lab/analysis/common.py](src/fishtest_spsa_lab/analysis/common.py)**:
-    - `make_schedule`: Generates the synthetic sequence of batch sizes and outcomes.
-    - `end_adjacent_shuffle`: Applies the end-adjacent shuffling used in all `validate_*.py` scripts.
-    - `plot_many`: Helper for consistent Matplotlib plotting and legends.
-- **[src/fishtest_spsa_lab/analysis/validate_variance.py](src/fishtest_spsa_lab/analysis/validate_variance.py)**:
-    - `compute_pentanomial_moments`: Theoretical mean, variance, and second moment for the pentanomial game model.
-    - `OnlineReportStats`: Accumulator for calculating block-averaged mean and second moment (mu and mu2) from batch-level statistics.
-- **[src/fishtest_spsa_lab/analysis/validate_*.py](src/fishtest_spsa_lab/analysis)**: Executable scripts that run the comparisons and generate the plots described above.
-- **[src/fishtest_spsa_lab/analysis/plot_spsa_schedule.py](src/fishtest_spsa_lab/analysis/plot_spsa_schedule.py)**:
-    Plots the naive 1D SPSA schedules `c_k`, `a_k`, and `r_k = a_k / c_k^2` versus the pair index for a chosen `(num_pairs, A, alpha, gamma, c_end, r_end)`.
-
-- **[src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py)**:
-    A sandbox demo optimizer that runs an unbounded SPSA loop against a toy N-D objective,
-    using the vendored `PentaModel` to generate pentanomial match noise. Plots always use
-    parameters 0 and 1.
-
-    Entry point:
-
-    - `uv run optimize-spsa-toy --help`

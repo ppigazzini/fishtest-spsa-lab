@@ -1,4 +1,4 @@
-# BALL_NOISE: Elo loss from match-outcome noise (noise-ball diagnostics)
+# Noise ball: Elo loss from match-outcome noise
 
 This doc derives a compact estimate for how much Elo you lose near the peak due to **evaluation noise** (finite pairs) when you keep running late-stage SPSA.
 
@@ -11,12 +11,12 @@ Related code:
 
 ## 1) Goal (what we compute)
 
-We want the expected Elo drop from the local peak after running “late-stage SPSA”:
+We want the expected Elo drop from the local peak after running "late-stage SPSA":
 
 - **Infinite horizon noise floor**: `D_inf` (expected drop after many batches).
 - **Finite horizon**: `D_T` (expected drop after `T` batches).
 
-We also use these drops to form a practical “upper bound on expected improvement” when starting from an initial drop `D0`.
+We also use these drops to form a practical "upper bound on expected improvement" when starting from an initial drop `D0`.
 
 ## 2) Inputs and conventions
 
@@ -33,7 +33,7 @@ We also use these drops to form a practical “upper bound on expected improveme
 Notes (how these are obtained in the lab scripts):
 
 - `slope_net_score_per_elo` and `var_net_score` are evaluated near Elo difference 0 using the match model, then scaled by `batch_size_pairs`.
-- This document models evaluation noise only; “developer calibration noise” (uncertainty in choosing `c_end_i`) is out of scope.
+- This document models evaluation noise only; "developer calibration noise" (uncertainty in choosing `c_end_i`) is out of scope.
 
 ### 2.2 SPSA signal convention (toy convention)
 
@@ -88,7 +88,7 @@ SPSA chooses `δ ∈ {±1}^N` and compares `θ ± c δ`.
 
 ### 4.2 Elo difference induced by a probe
 
-Define the Elo difference between the “plus” and “minus” probes:
+Define the Elo difference between the "plus" and "minus" probes:
 
 ```text
 elo_diff := Elo(θ + cδ) - Elo(θ - cδ)
@@ -205,7 +205,7 @@ and for the finite-time `S_T = S_*(1 - a^T)` expression you also want:
 
 where `a = 1 - 2*η_eff + η_eff^2 * N`.
 
-## 6) “Upper bound” interpretation from a starting drop
+## 6) "Upper bound" interpretation from a starting drop
 
 Let `D0` be your current Elo drop from the local peak (in the same near-peak approximation).
 Then under the same late-stage hyperparameters the model suggests:
@@ -217,7 +217,7 @@ improvement_max(inf) ≈ max(0, D0 - D_inf)
 
 This is an **expected-value** bound for this simplified system; individual runs fluctuate.
 
-## Appendix A) Extra intuition: “bounce” picture (optional)
+## Appendix A) Extra intuition: "bounce" picture (optional)
 
 Ignore evaluation noise for a moment and consider the isotropic quadratic where the rank-1 update can be written as:
 
@@ -243,7 +243,7 @@ But the same `~2/N` scale is still a useful sanity check: large effective gains 
 
 ## Appendix B) Conservative curvature-aware bound (general PSD curvature, optional)
 
-For a general quadratic with PSD curvature `H`, a conservative “don’t blow up the step-direction component” heuristic is:
+For a general quadratic with PSD curvature `H`, a conservative "don't blow up the step-direction component" heuristic is:
 
 ```text
 η * N * λ_max(H) < 2
@@ -267,7 +267,7 @@ Interpretation (directional):
 
 ## Appendix D) Related: anisotropic φ-space proxy (optional)
 
-The toy optimizer prints a φ-space fixed-`r_end` proxy (`E_inf`) that tries to keep the “SPSA normalization” consistent with `c_end`.
+The toy optimizer prints a φ-space fixed-`r_end` proxy (`E_inf`) that tries to keep the "SPSA normalization" consistent with `c_end`.
 That proxy is not identical to the isotropic derivation here, but it is motivated by the same idea:
 
 - treat late-stage behavior as a constant-gain system in φ-space,

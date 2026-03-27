@@ -18,10 +18,15 @@ The simulator mirrors the logic of the Fishtest server but runs locally with a s
 
 ## Documentation Map
 
-*   **[Core Simulator Internals](docs/SIMULATOR.md)**: Detailed math and logic of the `simulator` module (Optimizers, Oracle, Runner).
-*   **[Analysis Framework Internals](docs/ANALYSIS.md)**: Explanation of the validation scripts and statistical tools in the `analysis` module.
-*   **[Algorithms Guide](docs/ALGORITHMS.md)**: Theory guide for SPSA, SF-SGD, and SF-Adam.
-*   **[Macro vs Micro Analysis](docs/SPSA_MACRO_VS_MICRO.md)**: Analysis of batching effects and aggregation bias.
+*   **[Core Simulator Internals](docs/Simulator.md)**: Detailed math and logic of the `simulator` module (Optimizers, Oracle, Runner).
+*   **[Analysis Framework Internals](docs/Analysis.md)**: Explanation of the validation scripts and statistical tools in the `analysis` module.
+*   **[Algorithms Guide](docs/Algorithms.md)**: Theory guide for SPSA, SF-SGD, and SF-Adam.
+*   **[SF-SGD Derivation](docs/SF_SGD_derivation.md)**: Schedule-free SPSA with SGD backend derivation.
+*   **[SF-Adam Derivation](docs/SF_Adam_derivation.md)**: Schedule-free SPSA with AdamW backend derivation.
+*   **[Macro vs Micro Analysis](docs/SPSA_macro_micro.md)**: Analysis of batching effects and aggregation bias.
+*   **[Elo Function](docs/Elo_function.md)**: Latent Elo surface and measurement model for SPSA scaling.
+*   **[Noise Ball](docs/Noise_ball.md)**: Elo loss from match-outcome noise (noise-ball diagnostics).
+*   **[Rademacher Scaling](docs/Rademacher.md)**: Why `sqrt(N)` and `1/sqrt(N)` show up in SPSA.
 
 ## Project Structure
 
@@ -40,6 +45,8 @@ The project is organized into the following modules:
         gamma, c_end, r_end).
 *   **`src/fishtest_spsa_lab/vendor/`**: Third-party libraries.
     *   `pentamodel/`: Chess outcome probability model.
+*   **`tests/`**: Pytest suite validating macro-vs-micro correctness, config
+    initialization, and optimizer single-step sanity.
 
 ## Design Principles
 
@@ -91,7 +98,7 @@ These scripts will:
 
 ## Requirements
 
-*   Python 3.13+
+*   Python 3.14+
 *   `numpy`
 *   `matplotlib`
 

@@ -1,3 +1,8 @@
+"""Deprecated: nevergrad-based optimizer (requires uninstalled nevergrad package).
+
+This module is dead code retained for historical reference. Do not use it.
+"""
+
 import nevergrad as ng
 from pentamodel import PentaModel
 

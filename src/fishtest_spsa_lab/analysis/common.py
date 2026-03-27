@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from math import isclose
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from .validate_variance import (
     compute_pentanomial_moments,
@@ -16,6 +16,27 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     import matplotlib.pyplot as plt
+
+
+# ----- protocols for duck-typed state -----
+
+
+@runtime_checkable
+class HasSfWeightSum(Protocol):
+    """Object exposing a schedule-free weight accumulator."""
+
+    sf_weight_sum: float
+
+
+@runtime_checkable
+class HasMu2Stats(Protocol):
+    """Object exposing online mu2 estimator aggregates."""
+
+    reports: float
+    sum_n: float
+    sum_s: float
+    sum_s2_over_n: float
+    mu2_init: float
 
 
 # ----- plotting -----
@@ -118,7 +139,7 @@ def series_allclose(
 ) -> bool:
     """Check if two series are element-wise equal within a tolerance."""
     return all(
-        isclose(x, y, rel_tol=rel, abs_tol=abs_tol) for x, y in zip(a, b, strict=False)
+        isclose(x, y, rel_tol=rel, abs_tol=abs_tol) for x, y in zip(a, b, strict=True)
     )
 
 
@@ -131,7 +152,59 @@ def compute_a_from_outcomes(
     return frac * total_pairs
 
 
+# ----- schedule-free shared math -----
+
+
+def reconstruct_x_prev(theta_prev: float, z_prev: float, beta: float) -> float:
+    """Reconstruct x_prev from theta_prev and z_prev.
+
+    Caller must ensure beta != 0 (when beta == 0, x == z directly).
+    """
+    return (theta_prev - (1.0 - beta) * z_prev) / beta
+
+
+def sf_weighting_update(glob: HasSfWeightSum, n: int, lr: float) -> float:
+    """Advance the schedule-free weight accumulator by *n* pairs at rate *lr*.
+
+    Returns the interpolation coefficient for the current report.
+    """
+    report_weight = lr * n
+    glob.sf_weight_sum += report_weight
+    return report_weight / glob.sf_weight_sum if glob.sf_weight_sum > 0 else 1.0
+
+
+# ----- online mu2 estimator -----
+
+
+def mu2_hat(state: HasMu2Stats) -> float:
+    """Block-averaged E[g^2] estimator from report-level (N, s) aggregates.
+
+    Before any reports arrive, returns ``state.mu2_init``.
+    """
+    if state.reports <= 0.0:
+        return state.mu2_init
+    mu = (state.sum_s / state.sum_n) if state.sum_n > 0.0 else 0.0
+    e_s2_over_n = state.sum_s2_over_n / state.reports
+    e_n = state.sum_n / state.reports
+    sigma2 = e_s2_over_n - (mu * mu) * e_n
+    sigma2 = max(sigma2, 0.0)
+    mu2 = mu * mu + sigma2
+    return min(max(mu2, 1e-12), 4.0)
+
+
+def update_mu2_stats(state: HasMu2Stats, n: int, s: float) -> None:
+    """Update mu2 aggregates AFTER using the current estimate for this report."""
+    if n <= 0:
+        return
+    state.reports += 1.0
+    state.sum_n += float(n)
+    state.sum_s += float(s)
+    state.sum_s2_over_n += (float(s) * float(s)) / float(n)
+
+
 __all__ = [
+    "HasMu2Stats",
+    "HasSfWeightSum",
     "Line",
     "build_sequence",
     "compute_a_from_outcomes",
@@ -139,6 +212,10 @@ __all__ = [
     "end_adjacent_shuffle",
     "gen_pentanomial_outcomes",
     "make_schedule",
+    "mu2_hat",
     "plot_many",
+    "reconstruct_x_prev",
     "series_allclose",
+    "sf_weighting_update",
+    "update_mu2_stats",
 ]

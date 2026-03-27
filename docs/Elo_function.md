@@ -1,6 +1,6 @@
-# Latent Elo surface and measurement model for SPSA scaling
+# Elo function: latent Elo surface and measurement model for SPSA scaling
 
-This document specifies the synthetic modeling assumptions used by the repo’s SPSA diagnostics as the number of parameters $N$ changes.
+This document specifies the synthetic modeling assumptions used by the repo's SPSA diagnostics as the number of parameters $N$ changes.
 It keeps the discussion to the knobs that matter for cross-$N$ behavior:
 
 - a quadratic latent objective (isotropic or spectrum+rotation),
@@ -14,7 +14,7 @@ Dimension-dependent claims require stating the modeling choices.
 
 Goal: reproduce qualitative end-of-run SPSA behavior across $N$ (e.g. $N=1/10/100$) under a fixed family of assumptions.
 
-Cross-$N$ comparisons require stating (i) the objective family (“budget vs $N$”), (ii) what “$c$ corresponds to X Elo drop” means (axis vs diagonal), and (iii) how the end-of-run gain is normalized with $N$.
+Cross-$N$ comparisons require stating (i) the objective family ("budget vs $N$"), (ii) what "$c$ corresponds to X Elo drop" means (axis vs diagonal), and (iii) how the end-of-run gain is normalized with $N$.
 
 The canonical definition of the two-point SPSA numerator `deltaY_k` is in section 1.3.
 
@@ -23,7 +23,7 @@ The canonical definition of the two-point SPSA numerator `deltaY_k` is in sectio
 ### 1.1 Coordinates
 
 - `theta ∈ R^N`: parameter vector in the coordinate system in which `f_true` is defined.
-- `theta_peak`: local maximizer of `f_true` (the “good point”).
+- `theta_peak`: local maximizer of `f_true` (the "good point").
 - `e := theta - theta_peak`.
 
 ### 1.2 Latent surface and match observable
@@ -59,8 +59,8 @@ deltaY_k := f_hat(theta_k + c_k * delta_k) - f_hat(theta_k - c_k * delta_k)
 
 ### 1.4 Calibration vocabulary
 
-- **Axis calibration**: interpret “Elo drop target” as the loss from a 1D axis move.
-- **Diagonal calibration**: interpret “Elo drop target” as the loss from the SPSA probe `theta ± c*delta`.
+- **Axis calibration**: interpret "Elo drop target" as the loss from a 1D axis move.
+- **Diagonal calibration**: interpret "Elo drop target" as the loss from the SPSA probe `theta ± c*delta`.
 
 ## 2) Geometry and scaling knobs
 
@@ -128,7 +128,7 @@ Note: the linear spectrum has a single canonical slope; the only geometry/budget
 2) A rotation U:
 
 - U = I gives uncoupled parameters.
-- Random orthonormal U gives “generic coupling” (energy spread across coordinates).
+- Random orthonormal U gives "generic coupling" (energy spread across coordinates).
 
 Then define:
 
@@ -162,7 +162,7 @@ so E_delta[DeltaE_diag_delta(c)] = 0.5 * c^2 * trace(H)
 So:
 
 - `trace(H)` controls the typical Elo loss of the true SPSA perturbation (diagonal calibration).
-- `H_jj` (or a “typical” H_jj across j) controls the Elo loss of a 1D slice move (axis calibration).
+- `H_jj` (or a "typical" H_jj across j) controls the Elo loss of a 1D slice move (axis calibration).
 
 Important unit note: H depends on how theta is scaled. If you change a parameterization (or just rescale one parameter), then H, c_end,
 and the implied Elo gaps change. This is an expected consequence of changing coordinates; calibration must be defined relative to the chosen bounds/ranges.
@@ -171,13 +171,13 @@ Choosing an N-family corresponds to choosing how total curvature changes (or doe
 
 ---
 
-### 2.1.2 “Budget vs N”: choosing a normalization
+### 2.1.2 "Budget vs N": choosing a normalization
 
 A normalization for how the typical magnitude of the objective scales with N is required.
 
 For fishtest-like tuning experiments, a standard modeling choice is:
 
-- adding “fake” / redundant parameters should not increase the available Elo budget under the chosen normalization.
+- adding "fake" / redundant parameters should not increase the available Elo budget under the chosen normalization.
 
 Use a fixed-budget family (equivalently: fixed total curvature in normalized coordinates).
 Other normalizations exist. Use exactly one normalization per analysis.
@@ -210,13 +210,13 @@ f_M(theta) = elo_peak - (B/N) * sum_i d_i^2
 
 so G = (2B/N) * I and trace(G) = 2B is constant as N changes.
 
-Under the repo’s toy coordinate conventions (`theta_peak_i = 100`, lower-bound origin at `theta_i=0` so `d_i=-1`), the Elo at the origin is implied by the same knob:
+Under the repo's toy coordinate conventions (`theta_peak_i = 100`, lower-bound origin at `theta_i=0` so `d_i=-1`), the Elo at the origin is implied by the same knob:
 
 ```text
 Elo(0,...,0) = elo_peak - 0.5 * trace(G)
 ```
 
-Some scripts historically exposed a “lower-bounds (corner) Elo drop” parameter `drop := -Elo(0,...,0)`; under these conventions this is just `drop = 0.5*trace(G)` (isotropic or not), so `trace(G)` is the single curvature-budget knob.
+Some scripts historically exposed a "lower-bounds (corner) Elo drop" parameter `drop := -Elo(0,...,0)`; under these conventions this is just `drop = 0.5*trace(G)` (isotropic or not), so `trace(G)` is the single curvature-budget knob.
 
 ---
 
@@ -291,9 +291,9 @@ Noise statements must name the object:
 
 ---
 
-## 4) Calibration: meaning of “`c_end` corresponds to an Elo drop target”
+## 4) Calibration: meaning of "`c_end` corresponds to an Elo drop target"
 
-An “Elo drop target” is meaningless until you define which perturbation it refers to.
+An "Elo drop target" is meaningless until you define which perturbation it refers to.
 
 In the toy implementation (`src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py`), the
 main calibration target is explicitly the diagonal/SPSA meaning (section 4.B), and we refer to it
@@ -403,14 +403,14 @@ The diagnostic script supports explicit variants:
 
 ## 6) Schedule parameters and the `a_k = r_k * c_k^2` identity
 
-Many SPSA writeups parameterize the schedule using both a “gain” `a_k` and a probe radius `c_k`.
+Many SPSA writeups parameterize the schedule using both a "gain" `a_k` and a probe radius `c_k`.
 This document defines `r_k := a_k / c_k^2` once in section 1.3.
 
 This separates roles:
 
 - `c_k`: probe radius (how far you sample the objective)
 - `a_k`: overall gain in parameter space
-- `r_k`: “learning-rate-like” knob after factoring out the `c_k^2` scaling
+- `r_k`: "learning-rate-like" knob after factoring out the `c_k^2` scaling
 
 In fishtest-style parameterizations, it is convenient to specify an end-of-run target `r_end` and choose the schedule so that:
 
@@ -420,14 +420,14 @@ r_k(total_pairs) = r_end
 
 ### 6.1 Failure mode: mismatched calibration meaning
 
-If you calibrate c_end using an **axis** meaning ("2 Elo for a single coordinate move") but your SPSA numerator is produced by a **diagonal** probe (theta ± c*delta), then c_end will typically scale incorrectly with N (sections 4.A–4.E).
+If you calibrate c_end using an **axis** meaning ("2 Elo for a single coordinate move") but your SPSA numerator is produced by a **diagonal** probe (theta ± c*delta), then c_end will typically scale incorrectly with N (sections 4.A--4.E).
 
 Two bad things happen when this mismatch forces c_k to become large at high N:
 
 1) The SPSA pseudo-gradient becomes noisy simply because the function differences become huge.
 2) For nonlinear objectives, the estimator becomes biased by finite-c effects, and the Monte Carlo mean converges to the biased limit, not to grad f.
 
-This failure mode is frequently described as a “high-dimensional SPSA” issue and then treated with ad-hoc $N$-dependent factors.
+This failure mode is frequently described as a "high-dimensional SPSA" issue and then treated with ad-hoc $N$-dependent factors.
 The first fix is:
 - calibrate c_end to a **diagonal/SPSA** Elo drop target (`c_diag_elo_drop`) if your probe is diagonal,
 - and only then decide whether you additionally want an update-size normalization.
@@ -441,7 +441,7 @@ The toy implementation includes diagonal (SPSA) Elo-drop calibration for `c_end`
 
 ---
 
-This repo’s toy demo [src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py) models a developer who reasons about curvature in the **eigenbasis**.
+This repo's toy demo [src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py) models a developer who reasons about curvature in the **eigenbasis**.
 
 Let the true objective curvature in normalized coordinates be:
 
@@ -450,7 +450,7 @@ G = U^T diag(lambda_true) U
 ```
 
 The developer predicts a spectrum `lambda_dev` with the same trace/budget but wrong *shape*.
-Two important “realistic wrong” cases:
+Two important "realistic wrong" cases:
 
 - **Wrong gamma (power exponent)**: for a true power spectrum, choose `p_dev < p_true`.
   This makes the tail heavier (larger eigenvalues) and therefore overestimates tail curvature.

@@ -27,7 +27,9 @@ from .common import (
     end_adjacent_shuffle,
     make_schedule,
     plot_many,
+    reconstruct_x_prev,
     series_allclose,
+    sf_weighting_update,
 )
 
 # ----- data models -----
@@ -71,20 +73,6 @@ class Series:
 
 
 # ----- core math -----
-
-
-def reconstruct_x_prev(theta_prev: float, z_prev: float, beta: float) -> float:
-    """Reconstruct x_prev from theta_prev and z_prev."""
-    # If beta == 0, we never call this; x=z is used directly.
-    return (theta_prev - (1.0 - beta) * z_prev) / beta
-
-
-def sf_weighting_update(glob: GlobalState, n: int, lr: float) -> float:
-    """Update schedule-free weighting."""
-    # schedule-free mass increment
-    report_weight = lr * n
-    glob.sf_weight_sum += report_weight
-    return report_weight / glob.sf_weight_sum if glob.sf_weight_sum > 0 else 1.0
 
 
 def macro_update_sgd(

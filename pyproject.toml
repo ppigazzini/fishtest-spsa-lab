@@ -3,24 +3,25 @@ name = "fishtest-spsa-lab"
 version = "0.1.0"
 description = "Simulation and validation laboratory for Fishtest SPSA optimizers"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
-    "matplotlib>=3.10.7",
-    "numpy>=2.3.5",
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.3",
 ]
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.4.0",
-    "ruff>=0.14.5",
-    "ty>=0.0.1a32",
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.15.8",
+    "ty>=0.0.26",
 ]
 
 [tool.uv]
 default-groups = []
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -35,40 +36,19 @@ validate-variance = "fishtest_spsa_lab.analysis.validate_variance:main"
 validate-adam = "fishtest_spsa_lab.analysis.validate_adam:main"
 validate-penta = "fishtest_spsa_lab.analysis.validate_pentanomial:main"
 optimize-spsa-toy = "fishtest_spsa_lab.analysis.optimize_spsa_toy:main"
+noise-ball = "fishtest_spsa_lab.analysis.noise_ball:main"
 run-simulation = "fishtest_spsa_lab.simulator.main:main"
 plot-spsa-schedule = "fishtest_spsa_lab.analysis.plot_spsa_schedule:main"
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".ipynb_checkpoints",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pyenv",
-    ".pytest_cache",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    ".vscode",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "site-packages",
-    "venv",
     "src/fishtest_spsa_lab/vendor",
+    "docs",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ty.src]
 exclude = [

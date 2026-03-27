@@ -1,6 +1,6 @@
 # Collapsing N micro-steps into one macro update: what changes, and why
 
-This note is scoped to the experimental schedule-free SPSA branches (`sf-sgd`, `sf-adam`). It explains how collapsing N micro-updates inside a report into a single macro update changes the path, and how far we can recover the micro behavior using only block-level statistics. It is a companion to `ALGORITHMS.md`, focused purely on aggregation and sequence effects in the `analysis/` simpplified experiments, not on the full fishtest framework with parallel workers, with different batch sizes and out-of-order updates.
+This note is scoped to the experimental schedule-free SPSA branches (`sf-sgd`, `sf-adam`). It explains how collapsing N micro-updates inside a report into a single macro update changes the path, and how far we can recover the micro behavior using only block-level statistics. It is a companion to `Algorithms.md`, focused purely on aggregation and sequence effects in the `analysis/` simplified experiments, not on the full fishtest framework with parallel workers, with different batch sizes and out-of-order updates.
 
 Inside a report there are N per-pair signals signal_j and per-pair gains gain_j that can vary across the block.
 
@@ -33,7 +33,7 @@ Replacing the N sequential micro-steps with one macro update creates two separat
 ## What is recoverable vs not (in general)
 
 Recoverable with block-level stats:
-- Replace start_gain with mean_gain to remove the “use-first-gain” shortcut.
+- Replace start_gain with mean_gain to remove the "use-first-gain" shortcut.
 - This reproduces the aggregation for the constant-mean surrogate (signal_j = mean_signal) and matches a micro path built from that surrogate.
 - It does not reconstruct the aggregation of the real per-step sequence sum_j gain_j * signal_j.
 
@@ -50,7 +50,7 @@ Not recoverable from block sums/means:
 
 - If you are tuning **classic SPSA** only, focus on the section *SPSA (classic, weighted sum with time-varying gains)* and the general "Two distinct effects" discussion above.
 - If you are comparing **schedule-free SGD vs classic SPSA**, read the SPSA section first, then *Schedule-free SPSA with SGD backend (linear dynamics for z and x)*.
-- If you are working on **sf-adam**, skim the earlier sections and then pay close attention to *Schedule-free SPSA with AdamW backend (with online μ2 from block summaries)*; that is where the μ₂ estimator and k(N, β₂) behavior is summarized.
+- If you are working on **sf-adam**, skim the earlier sections and then pay close attention to *Schedule-free SPSA with AdamW backend (with online μ2 from block summaries)*; that is where the μ2 estimator and k(N, β2) behavior is summarized.
 
 ---
 
@@ -58,14 +58,14 @@ Not recoverable from block sums/means:
 
 - These `analysis/` modules are experimental tools for understanding macro vs micro behavior in the schedule-free SPSA branches; they are not used by the production fishtest server or worker.
 
-- src/fishtest_spsa_lab/analysis/validate_spsa.py — SPSA macro vs micro simulation (corrected vs uncorrected; original vs shuffled).
-- src/fishtest_spsa_lab/analysis/validate_sf_sgd.py — Schedule-free SGD simulation (macro vs micro const-mean vs micro real).
-- src/fishtest_spsa_lab/analysis/validate_sf_adam.py — Schedule-free Adam simulation (macro with online μ2; micro const-mean; micro real).
-- src/fishtest_spsa_lab/analysis/common.py — Shared helpers:
+- src/fishtest_spsa_lab/analysis/validate_spsa.py -- SPSA macro vs micro simulation (corrected vs uncorrected; original vs shuffled).
+- src/fishtest_spsa_lab/analysis/validate_sf_sgd.py -- Schedule-free SGD simulation (macro vs micro const-mean vs micro real).
+- src/fishtest_spsa_lab/analysis/validate_sf_adam.py -- Schedule-free Adam simulation (macro with online μ2; micro const-mean; micro real).
+- src/fishtest_spsa_lab/analysis/common.py -- Shared helpers:
   - Plotting: Line, plot_many
   - Schedules/sequences: make_schedule, end_adjacent_shuffle, build_sequence
   - Utilities: series_allclose, compute_A_from_outcomes
-- src/fishtest_spsa_lab/analysis/validate_variance.py — Pentanomial and online stats:
+- src/fishtest_spsa_lab/analysis/validate_variance.py -- Pentanomial and online stats:
   - compute_pentanomial_moments, gen_pentanomial_outcomes
   - InitStats, compute_init_stats_from_prior
   - OnlineReportStats (exact block-averaged estimator from (s, N) only)
@@ -77,7 +77,7 @@ Not recoverable from block sums/means:
 - Nature: the block update is a weighted sum, sum_j gain_j * signal_j, where gain_j = a_k / c_k depends on the within-block position k. Because gains vary across the block, the update is not determined by sum_signal alone.
 
 Recoverable (aggregation):
-- Using mean_gain per block removes the “use the first gain” shortcut bias, and reproduces the constant-mean surrogate exactly (mean-gain macro == constant-mean micro). See src/fishtest_spsa_lab/analysis/validate_spsa.py.
+- Using mean_gain per block removes the "use the first gain" shortcut bias, and reproduces the constant-mean surrogate exactly (mean-gain macro == constant-mean micro). See src/fishtest_spsa_lab/analysis/validate_spsa.py.
 
 Not recoverable (sequence dependence):
 - Without the per-step sequence, you cannot in general reconstruct sum_j gain_j * signal_j. Two sequences with the same sum_signal (even the same histogram) give different results when gains vary within the block.
@@ -96,7 +96,7 @@ Recoverable (aggregation):
 
 Why the charts show near-coincidence and robustness:
 - z at report boundaries depends only on sum_signal, so it is sequence-invariant.
-- x uses decaying schedule-free weights a_t ≈ 1/t; the within-block ordering noise is averaged with total “blend mass” ~ sum_{j=1..N} a_{t+j} ≈ ln((t+N)/t) ≈ N/t. As t grows, this vanishes.
+- x uses decaying schedule-free weights a_t ≈ 1/t; the within-block ordering noise is averaged with total "blend mass" ~ sum_{j=1..N} a_{t+j} ≈ ln((t+N)/t) ≈ N/t. As t grows, this vanishes.
 - Result: macro/micro(const-mean) are very close to the real micro, and the difference shrinks over time; shuffling has negligible long-run effect.
 
 ---
@@ -104,38 +104,38 @@ Why the charts show near-coincidence and robustness:
 ## Schedule-free SPSA with AdamW backend (with online μ2 from block summaries)
 
 Core mechanics inside a block:
-- Per-step variance state: v_j = β₂ · v_{j−1} + (1 − β₂) · (signal_j)²
-- Per-step scale: step_scale_j = 1 / sqrt(v̂_j + ε), with bias correction in v̂
+- Per-step variance state: v_j = β2 · v_{j−1} + (1 − β2) · (signal_j)^2
+- Per-step scale: step_scale_j = 1 / sqrt(v_j + ε), with bias correction in v
 - Per-step update (schematically): Δ_j ≈ lr · signal_j · step_scale_j
 
 What we model (block-level only, no per-outcome access):
 - Macro (fishtest-style):
   - Inputs per report: {N, s}, where s = Σ_j signal_j and N is the count.
   - Online second moment per pair is estimated before the block using exact block averages (see OnlineReportStats in src/fishtest_spsa_lab/analysis/validate_variance.py):
-    - μ̂ = (Σ s_i) / (Σ N_i)
-    - E_N = (Σ N_i) / K, E_s2_over_N = (Σ s_i² / N_i) / K, with K = number of reports
-    - σ̂² = E_s2_over_N − μ̂² · E_N
-    - μ̂2 = μ̂² + σ̂²
-  - Use μ̂2 as the constant g² level for the block’s closed-form Adam v update, apply bias correction and the intra-block damping k(N, β₂), then take one step with the block sum s.
+    - μ = (Σ s_i) / (Σ N_i)
+    - E_N = (Σ N_i) / K, E_s2_over_N = (Σ s_i^2 / N_i) / K, with K = number of reports
+    - σ^2 = E_s2_over_N − μ^2 · E_N
+    - μ2 = μ^2 + σ^2
+  - Use μ2 as the constant g^2 level for the block's closed-form Adam v update, apply bias correction and the intra-block damping k(N, β2), then take one step with the block sum s.
 - Micro (const-mean):
-  - N steps with constant numerator mean_signal = s/N and constant g² = μ̂2 (the same pre-block estimate). By construction, this path coincides with the macro.
+  - N steps with constant numerator mean_signal = s/N and constant g^2 = μ2 (the same pre-block estimate). By construction, this path coincides with the macro.
 - Micro (real):
-  - N steps with the realized per-outcome signal_j and g²_j = (signal_j)² at each step.
+  - N steps with the realized per-outcome signal_j and g^2_j = (signal_j)^2 at each step.
 
 Guarantees and behavior:
-- Macro == Micro(const-mean) exactly, for any β₁, β₂, lr, and N.
-- Using μ̂2 (mean of squares) aligns the normalization level with the real micro path, removing the large drift that would arise from using (mean_signal)².
+- Macro == Micro(const-mean) exactly, for any β1, β2, lr, and N.
+- Using μ2 (mean of squares) aligns the normalization level with the real micro path, removing the large drift that would arise from using (mean_signal)^2.
 - A small residual difference remains vs the real micro due to within-block sequence and convexity effects (order of |signal| interacting with the EMA and 1/√·). This term is zero-mean and typically small; it shrinks as total pairs grow and is only mildly affected by shuffling.
 
 Key formulas (block-averaged, report-level only):
-- μ̂ = Σ s_i / Σ N_i
+- μ = Σ s_i / Σ N_i
 - E_N = (Σ N_i) / K
-- E_s2_over_N = (Σ s_i² / N_i) / K
-- σ̂² = E_s2_over_N − μ̂² · E_N
-- μ̂2 = μ̂² + σ̂²
+- E_s2_over_N = (Σ s_i^2 / N_i) / K
+- σ^2 = E_s2_over_N − μ^2 · E_N
+- μ2 = μ^2 + σ^2
 
 Code anchors:
-- Estimator and updates: mu2_hat, update_mu2_stats in src/fishtest_spsa_lab/analysis/validate_sf_adam.py
+- Estimator and updates: mu2_hat, update_mu2_stats in src/fishtest_spsa_lab/analysis/common.py
 - Adam closed form and intra-block damping: adam_v_closed_form, adam_k in src/fishtest_spsa_lab/analysis/validate_sf_adam.py
 - Paths: macro_update and build_const_mean_online_sequences in src/fishtest_spsa_lab/analysis/validate_sf_adam.py
 - Stats and priors: InitStats, OnlineReportStats, compute_init_stats_from_prior, compute_pentanomial_moments in src/fishtest_spsa_lab/analysis/validate_variance.py

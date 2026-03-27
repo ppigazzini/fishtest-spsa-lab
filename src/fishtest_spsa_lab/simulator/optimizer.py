@@ -306,6 +306,8 @@ class SFSGD(ScheduleFreeCore):
         self.theta = (1.0 - beta) * self.z + beta * self.x
         self._clip_theta()
 
+        self._sync_x_from_theta_z(beta)
+
 
 class SFSGDBlock(ScheduleFreeCore):
     """Block-corrected Schedule-Free SGD with triangular weighting."""
@@ -500,10 +502,12 @@ class SFAdamBlock(ScheduleFreeCore):
         return float(min(max(mu2, 1e-12), 4.0))
 
     def _update_mu2_stats(self, n: int, s: float) -> None:
+        if n <= 0:
+            return
         self.reports += 1.0
         self.sum_n += float(n)
         self.sum_s += float(s)
-        self.sum_s2_over_n += (float(s) * float(s)) / max(float(n), 1.0)
+        self.sum_s2_over_n += (float(s) * float(s)) / float(n)
 
     def step(
         self,
@@ -650,6 +654,10 @@ class Adam(Optimizer):
         if n <= 0:
             return
 
+        # Sign convention: SPSA maximizes Elo, Adam minimizes loss. The
+        # negation in g_scalar maps the maximization signal to a minimization
+        # gradient; _adam_step_vector then subtracts lr * step, completing the
+        # double-negation so theta moves toward higher Elo.
         g_scalar = -float(net_wins) / float(n)
         grad = g_scalar * flip
 
@@ -718,6 +726,9 @@ class AdamBlock(Optimizer):
 
         sum_m = m0 * s_beta1 + grad * (n - s_beta1)
 
+        # Approximation: the denominator uses v_n (end-of-block value) for all
+        # N micro-steps, and bias correction is omitted. The resulting error is
+        # O((1 - beta2^n) * |v_n - v_0|) per block and vanishes as v converges.
         denom = np.sqrt(v_n) + eps
         step_vec = np.where(denom > 0.0, sum_m / denom, 0.0)
 
@@ -1036,6 +1047,7 @@ class AdEMAMix(Optimizer):
         if n <= 0:
             return
 
+        # Sign convention: same double-negation as Adam (see Adam.step).
         g_scalar = -float(net_wins) / float(n)
         grad = g_scalar * flip
 
