@@ -192,9 +192,10 @@ def interpolate_p5(
     alpha: float,
 ) -> tuple[float, float, float, float, float]:
     """Linear interpolation between two pentanomials."""
-    return tuple(
+    p0, p1, p2, p3, p4 = (
         (1.0 - alpha) * ps + alpha * pe for ps, pe in zip(p_start, p_end, strict=True)
-    )  # type: ignore[return-value]
+    )
+    return (p0, p1, p2, p3, p4)
 
 
 def make_changing_p5_schedule(  # noqa: PLR0913
