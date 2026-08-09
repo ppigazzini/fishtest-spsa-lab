@@ -300,47 +300,111 @@ These codebases provide public implementations of schedule-free optimizers used 
 
 ## Bibliography
 
-Entries [1]-[16] cover SPSA and the schedule-free / adaptive first-order line
-that the lab's optimizers are drawn from. Entries [17]-[18] cover the
-zeroth-order oracle Fishtest actually presents: a two-point, symmetric,
-common-random-number estimate of a *function difference*, reported by a pool of
-distributed workers.
+The list is chronological. Entries [1]-[4] are the SPSA line proper, including
+the second-order branch that addresses the anisotropy problem. Entry [5] is the
+closest prior art to this repository. Entries [6]-[19] are the schedule-free /
+adaptive first-order line the lab's optimizers are drawn from. Entries
+[20]-[21] cover the zeroth-order oracle Fishtest actually presents: a
+two-point, symmetric, common-random-number estimate of a *function difference*,
+reported by a pool of distributed workers.
 
 [1] J. C. Spall. "Multivariate Stochastic Approximation Using a Simultaneous Perturbation Gradient Approximation." IEEE Transactions on Automatic Control, 37(3), 1992. https://www.jhuapl.edu/spsa/PDF-SPSA/Spall_TAC92.pdf
 
 [2] J. C. Spall. "Implementation of the Simultaneous Perturbation Algorithm for Stochastic Optimization." IEEE Transactions on Aerospace and Electronic Systems, 34(3), 1998. https://www.jhuapl.edu/SPSA/PDF-SPSA/Spall_Implementation_of_the_Simultaneous.PDF
 
-[3] D. P. Kingma, J. Ba. "Adam: A Method for Stochastic Optimization." arXiv:1412.6980 (2014). https://arxiv.org/abs/1412.6980
+[3] J. C. Spall. "Adaptive Stochastic Approximation by the Simultaneous Perturbation Method." IEEE Transactions on Automatic Control, 45(10), October 2000, pp. 1839-1853. https://www.jhuapl.edu/spsa/PDF-SPSA/Spall_TAC00.pdf
 
-[4] I. Loshchilov, F. Hutter. "Decoupled Weight Decay Regularization." arXiv:1711.05101 (2017). https://arxiv.org/abs/1711.05101
+[4] X. Zhu, J. C. Spall. "A modified second-order SPSA optimization algorithm for finite samples." International Journal of Adaptive Control and Signal Processing, 16, 2002, pp. 397-409. DOI 10.1002/acs.715. https://www.jhuapl.edu/spsa/PDF-SPSA/zhu_spall_IJACSP.pdf
 
-[5] X. Wang, L. Aitchison. "Batch Size Invariant Adam." arXiv:2402.18824 (February 2024). https://arxiv.org/abs/2402.18824
+[5] M. Van den Bergh. "Theoretical Basis of the SPSA Process", in `spsa_simul`, a multi-threaded SPSA simulator in C (first commit May 2020). https://github.com/vdbergh/spsa_simul -- document at https://github.com/vdbergh/spsa_simul/blob/master/doc/theoretical_basis.pdf
 
-[6] A. Defazio, X. A. Yang, H. Mehta, K. Mishchenko, A. Khaled, A. Cutkosky. "The Road Less Scheduled: Schedule-Free Optimization in Deep Learning." arXiv:2405.15682 (May 2024). https://arxiv.org/abs/2405.15682
+[6] D. P. Kingma, J. Ba. "Adam: A Method for Stochastic Optimization." arXiv:1412.6980 (2014). https://arxiv.org/abs/1412.6980
 
-[7] K. Ahn, A. Cutkosky. "Adam with model exponential moving average is effective for nonconvex optimization." arXiv:2405.18199 (May 2024). https://arxiv.org/abs/2405.18199
+[7] I. Loshchilov, F. Hutter. "Decoupled Weight Decay Regularization." arXiv:1711.05101 (2017). https://arxiv.org/abs/1711.05101
 
-[8] M. Pagliardini, P. Ablin, D. Grangier. "The AdEMAMix Optimizer: Better, Faster, Older." arXiv:2409.03137 (September 2024) https://arxiv.org/abs/2409.03137
+[8] X. Wang, L. Aitchison. "Batch Size Invariant Adam." arXiv:2402.18824 (February 2024). https://arxiv.org/abs/2402.18824
 
-[9] K. Ahn, G. Magakyan, A. Cutkosky. "General Framework for Online-to-Nonconvex Conversion: Schedule-Free SGD Is Also Effective for Nonconvex Optimization." arXiv:2411.07061 (November 2024). https://arxiv.org/abs/2411.07061
+[9] A. Defazio, X. A. Yang, H. Mehta, K. Mishchenko, A. Khaled, A. Cutkosky. "The Road Less Scheduled: Schedule-Free Optimization in Deep Learning." arXiv:2405.15682 (May 2024). https://arxiv.org/abs/2405.15682
 
-[10] D. Morwani, N. Vyas, H. Zhang, S. Kakade. "Connections between Schedule-Free Optimizers, AdEMAMix, and Accelerated SGD Variants." arXiv:2502.02431 (February 2025). https://arxiv.org/abs/2502.02431
+[10] K. Ahn, A. Cutkosky. "Adam with model exponential moving average is effective for nonconvex optimization." arXiv:2405.18199 (May 2024). https://arxiv.org/abs/2405.18199
 
-[11] M. Song, B. Baek, K. Ahn, C. Yun. "Through the River: Understanding the Benefit of Schedule-Free Methods for Language Model Training." arXiv:2507.09846 (July 2025). https://arxiv.org/abs/2507.09846v1
+[11] M. Pagliardini, P. Ablin, D. Grangier. "The AdEMAMix Optimizer: Better, Faster, Older." arXiv:2409.03137 (September 2024) https://arxiv.org/abs/2409.03137
 
-[12] C. Brown. "Analysis of Schedule-Free Nonconvex Optimization." arXiv:2508.06743 (August 2025). https://arxiv.org/abs/2508.06743
+[12] K. Ahn, G. Magakyan, A. Cutkosky. "General Framework for Online-to-Nonconvex Conversion: Schedule-Free SGD Is Also Effective for Nonconvex Optimization." arXiv:2411.07061 (November 2024). https://arxiv.org/abs/2411.07061
 
-[13] L. Chen, J. Li, K. Liang, B. Su, C. Xie, N. W. Pierse, C. Liang, N. Lao, Q. Liu "Cautious Weight Decay." arXiv:2510.12402 (October 2025) https://arxiv.org/abs/2510.12402
+[13] D. Morwani, N. Vyas, H. Zhang, S. Kakade. "Connections between Schedule-Free Optimizers, AdEMAMix, and Accelerated SGD Variants." arXiv:2502.02431 (February 2025). https://arxiv.org/abs/2502.02431
 
-[14] Y.M. Pun, M. Buchholz, R. M. Gower. "Schedulers for Schedule-Free: Theoretically Inspired Hyperparameters." arXiv:2511.07767v1 (November 2025). https://arxiv.org/abs/2511.07767v1 (the current version of this record carries a different title and author list; v1 is pinned deliberately)
+[14] M. Song, B. Baek, K. Ahn, C. Yun. "Through the River: Understanding the Benefit of Schedule-Free Methods for Language Model Training." arXiv:2507.09846 (July 2025). https://arxiv.org/abs/2507.09846v1
 
-[15] A. Defazio, K. Mishchenko, P. Raman, H.-J. M. Shi, L. Xiao. "Smoothing DiLoCo with Primal Averaging for Faster Training of LLMs." arXiv:2512.17131 (December 2025). https://arxiv.org/abs/2512.17131
+[15] C. Brown. "Analysis of Schedule-Free Nonconvex Optimization." arXiv:2508.06743 (August 2025). https://arxiv.org/abs/2508.06743
 
-[16] A. Meterez, P. A. Nair, D. Morwani, C. Pehlevan, S. Kakade. "Anytime Pretraining: Horizon-Free Learning-Rate Schedules with Weight Averaging." arXiv:2602.03702 (February 2026). https://arxiv.org/abs/2602.03702
+[16] L. Chen, J. Li, K. Liang, B. Su, C. Xie, N. W. Pierse, C. Liang, N. Lao, Q. Liu "Cautious Weight Decay." arXiv:2510.12402 (October 2025) https://arxiv.org/abs/2510.12402
 
-[17] Y. Su, X. Tong, C. Sun. "Distributed Zeroth-Order Optimization with Rademacher Perturbations and Momentum Gradient Tracking." arXiv:2604.21368 (April 2026). https://arxiv.org/abs/2604.21368
+[17] Y.M. Pun, M. Buchholz, R. M. Gower. "Schedulers for Schedule-Free: Theoretically Inspired Hyperparameters." arXiv:2511.07767v1 (November 2025). https://arxiv.org/abs/2511.07767v1 (the current version of this record carries a different title and author list; v1 is pinned deliberately)
 
-[18] H. Ye. "High-Probability Last-Iterate Guarantees for Two-Point Gaussian Zeroth-Order Stochastic Gradient Descent." arXiv:2606.20446 (June 2026). https://arxiv.org/abs/2606.20446
+[18] A. Defazio, K. Mishchenko, P. Raman, H.-J. M. Shi, L. Xiao. "Smoothing DiLoCo with Primal Averaging for Faster Training of LLMs." arXiv:2512.17131 (December 2025). https://arxiv.org/abs/2512.17131
+
+[19] A. Meterez, P. A. Nair, D. Morwani, C. Pehlevan, S. Kakade. "Anytime Pretraining: Horizon-Free Learning-Rate Schedules with Weight Averaging." arXiv:2602.03702 (February 2026). https://arxiv.org/abs/2602.03702
+
+[20] Y. Su, X. Tong, C. Sun. "Distributed Zeroth-Order Optimization with Rademacher Perturbations and Momentum Gradient Tracking." arXiv:2604.21368 (April 2026). https://arxiv.org/abs/2604.21368
+
+[21] H. Ye. "High-Probability Last-Iterate Guarantees for Two-Point Gaussian Zeroth-Order Stochastic Gradient Descent." arXiv:2606.20446 (June 2026). https://arxiv.org/abs/2606.20446
+
+### The second-order branch, and why it is not the easy win it looks like
+
+Fishtest's hard case is anisotropy: the developer supplies one `c_j` per
+parameter by guesswork, the per-parameter Elo sensitivities differ by orders of
+magnitude, and the resulting Hessian is badly conditioned. [3] is the classical
+answer -- estimate the Hessian concurrently with the parameters, using a second
+simultaneous perturbation, at the cost of roughly twice the loss measurements
+per iteration. On Fishtest a "loss measurement" is a block of games, so that
+cost is real.
+
+[4] is the entry that should stop anyone adopting [3] uncritically, and it is
+the reason both are cited together. Its result is that at **finite** iterations
+the accuracy of 2SPSA is governed by the conditioning of the loss Hessian,
+first-order SPSA is *less* sensitive to that conditioning than 2SPSA is, and
+2SPSA's error on an ill-conditioned Hessian is worse than on a well-conditioned
+one. M2SPSA exists precisely to remove the error amplification introduced by
+inverting an ill-conditioned Hessian estimate.
+
+Fishtest sits in exactly the regime where that matters: ill-conditioned by
+construction, and running at a budget far below the asymptotic one (see the
+`lambda_j` sizing below). So "use second-order SPSA" is not the improvement it
+appears to be, and this lab should not propose it upstream without measuring
+it. The testable claim is narrow and stated here so it can be checked: against
+a diagonal preconditioner chosen by the Gauss-Newton condition
+`c_j**2 * eps_j = const`, plain 2SPSA should *lose* at Fishtest budgets, and
+M2SPSA is the variant worth the games.
+
+### Prior art: the `spsa_simul` simulator
+
+[5] is the closest existing work to this repository and the reason several of
+its results can be cross-checked rather than merely asserted. It contributes
+three things the lab uses directly:
+
+- The design equations. `r = 8 * precision / (C * chi2_ppf(confidence, n) *
+  sigma2)` sizes the gain from a target precision, and
+  `lambda_j = C / (8 * r * c_j**2 * eps_j)` gives the per-axis time constant
+  that says whether a budget can separate two arms at all. Sizing a run before
+  launching it is a standing rule in this repo and it comes from here.
+- An independent derivation of the stationary Elo floor, from an SDE.
+  [Noise_ball.md](Noise_ball.md) reaches the same floor from a rank-1
+  second-moment recursion; the two agree to one part in 10,000 across
+  `N = 4..64`, which is what makes either of them believable.
+- The Gauss-Newton condition `E(cc^T) * Hess(e) = mu * I`, equivalently
+  `c_j**2 * eps_j = const`, which is the principled replacement for the
+  `range/20` folklore used to pick `c_j` in practice.
+
+Cite it, but do not adopt it wholesale. Two of its arguments do not survive
+checking: its claim that a constant gain suffices because convergence is
+unreachable ignores that the noise floor is proportional to the *current* gain,
+so a decaying gain shrinks the ball as the run proceeds (measured here: decay
+is worse early, crosses the constant arm near 90k pairs, and is still falling
+at the end), and its printed asymptotic covariance `(r**2 * sigma2 / 4) *
+A**-1` disagrees with the Lyapunov solution `(r * sigma2 / 4) * E**-1` that its
+own diagonal section uses. Both of its theorems are correct; those two passages
+are not.
 
 ### What kind of zeroth-order problem this is
 
@@ -361,14 +425,14 @@ optimization from pairwise comparisons. The comparison structure exists at the
 level of a single game, but averaging N games through a known, locally linear
 link recovers the magnitude directly, and the optimizer never sees a bare sign.
 
-[17] is the closest published match to the Fishtest topology: Rademacher
+[20] is the closest published match to the Fishtest topology: Rademacher
 perturbations, exactly two function queries per iteration, momentum, and a
 distributed pool. Read it for the momentum result -- the heterogeneity-induced
 bias floor falls as `(1 - beta)**2` -- and not for the topology, which is a
 consensus network with per-agent objectives. Fishtest has one shared parameter
 vector and one objective, so it has no consensus term.
 
-[18] matches the estimator itself: two symmetric perturbations evaluated on the
+[21] matches the estimator itself: two symmetric perturbations evaluated on the
 same stochastic sample, which is exactly the reversed-colour pair sharing one
 book exit, and a guarantee on the *last* iterate rather than on an average. That
 is the quantity Fishtest exports, and the quantity
