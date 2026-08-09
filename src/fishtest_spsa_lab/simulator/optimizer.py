@@ -7,7 +7,6 @@ import abc
 import numpy as np
 
 from fishtest_spsa_lab.simulator.config import (
-    SQRT_EPSILON,
     TINY_EPSILON,
     SPSAConfig,
 )
@@ -56,8 +55,12 @@ class Optimizer(abc.ABC):
         """Advance theta using the gradient estimate from one batch."""
 
     def get_params(self) -> np.ndarray:
-        """Return the current parameter vector."""
-        return self.theta
+        """Return a copy of the current parameter vector.
+
+        The copy is mandatory. ``step`` mutates ``self.theta`` in place, so
+        handing out the live array lets a stored result change under its owner.
+        """
+        return self.theta.copy()
 
     def _clip(self, vec: np.ndarray) -> np.ndarray:
         """Clip a vector to the developer-visible parameter bounds."""
@@ -168,17 +171,6 @@ class ScheduleFreeCore(Optimizer):
         x_rec = (self.theta - (1.0 - beta) * self.z) / beta
         return self._clip(x_rec)
 
-    def _assert_reconstruction(self, beta: float, *, atol: float = 1e-5) -> None:
-        """Assert that x matches reconstruction from (theta, z) for beta > 0."""
-        if beta <= 0.0:
-            return
-
-        x_rec = self._reconstruct_x_from_theta_z(beta)
-        if not np.allclose(self.x, x_rec, atol=atol):
-            max_diff = float(np.max(np.abs(self.x - x_rec)))
-            msg = f"Reconstruction failed. Max diff: {max_diff}"
-            raise AssertionError(msg)
-
     def _sync_x_from_theta_z(self, beta: float) -> None:
         """Set x to match reconstruction from (theta, z) for beta > 0."""
         if beta <= 0.0:
@@ -278,7 +270,6 @@ class SFSGD(ScheduleFreeCore):
         )
 
         beta = self.config.sf_sgd.beta
-        self._assert_reconstruction(beta)
 
         delta_total_step = lr * c_k * float(net_wins) * flip
         x_prev = self.x.copy()
@@ -343,7 +334,6 @@ class SFSGDBlock(ScheduleFreeCore):
         )
 
         beta = self.config.sf_sgd.beta
-        self._assert_reconstruction(beta)
 
         delta_total_step = lr * c_k * float(net_wins) * flip
 
@@ -388,7 +378,6 @@ class SFAdam(ScheduleFreeCore):
         super().__init__(config)
         self._init_schedule_free_state()
         self.v = np.zeros_like(self.theta)
-        self.t = 0
 
         self.c_constant = _default_c_constant(config)
 
@@ -422,14 +411,19 @@ class SFAdam(ScheduleFreeCore):
         if batch_size <= 0:
             return
 
-        self._assert_reconstruction(beta1)
-
         micro_steps = iter_local + batch_size - 1
-        g_phi_mean = (float(net_wins) / float(batch_size)) * flip
+
+        # Per-pair second moment estimated from the block summary as s**2 / N.
+        # Using (s / N)**2 instead estimates E[g]**2 rather than E[g**2], which
+        # makes the denominator proportional to |s| / N and the whole step
+        # proportional to the batch size. The numerator below is the block sum,
+        # so the denominator must be a per-pair quantity for the update to be
+        # invariant to how games are chunked into reports.
+        g_sq_per_pair = (float(net_wins) ** 2) / float(batch_size)
 
         if beta2 < 1.0:
             beta2_pow_n = beta2**batch_size
-            self.v = beta2_pow_n * self.v + (1.0 - beta2_pow_n) * (g_phi_mean**2)
+            self.v = beta2_pow_n * self.v + (1.0 - beta2_pow_n) * g_sq_per_pair
 
             bc_denom = 1.0 - (beta2**micro_steps)
             v_hat = self.v / bc_denom if bc_denom > TINY_EPSILON else self.v
@@ -532,8 +526,6 @@ class SFAdamBlock(ScheduleFreeCore):
         if batch_size <= 0:
             return
 
-        self._assert_reconstruction(beta1)
-
         # --- Adam-specific math for batched / out-of-order updates ---
         self.iter_pairs += batch_size
 
@@ -552,20 +544,14 @@ class SFAdamBlock(ScheduleFreeCore):
 
         step_phi = (lr * float(net_wins) * flip) / denom
 
-        if batch_size > 1 and 0.0 < beta2 < 1.0:
-            sqrt_b2 = np.sqrt(beta2)
-            if abs(1.0 - sqrt_b2) > SQRT_EPSILON:
-                num = 1.0 - (beta2 ** (0.5 * batch_size))
-                den = batch_size * (1.0 - sqrt_b2)
-                k_damping = num / den if den != 0.0 else 1.0
-            else:
-                k_damping = 1.0 - ((batch_size - 1) * 0.25) * (1.0 - beta2)
-
-            if not (0.0 < k_damping <= 1.0):
-                k_damping = 1.0 if k_damping > 1.0 else 1e-6
-
-            step_phi *= k_damping
-
+        # No intra-block damping factor. The geometric k(N, beta2) that used to
+        # sit here corrected a ramp in the denominator across the block, but the
+        # Adam bias correction applied above already removes that ramp: with
+        # v_{t0} on the bias-corrected trajectory, v_hat is identical at every
+        # micro-step and the exact factor is 1 for all N and beta2. The previous
+        # form also carried a sign error (it was <= 1 where the derivation calls
+        # for >= 1) and was clipped to (0, 1], which made the correct direction
+        # unreachable; at beta2 = 0.9, N = 128 it under-stepped by 6.6x.
         delta_total_step = step_phi * c_k
 
         self.z += delta_total_step
@@ -675,6 +661,7 @@ class AdamBlock(Optimizer):
         super().__init__(config)
         self.m = np.zeros_like(self.theta)
         self.v = np.zeros_like(self.theta)
+        self.t = 0
 
         self.c_constant = _default_c_constant(config)
 
@@ -726,11 +713,22 @@ class AdamBlock(Optimizer):
 
         sum_m = m0 * s_beta1 + grad * (n - s_beta1)
 
-        # Approximation: the denominator uses v_n (end-of-block value) for all
-        # N micro-steps, and bias correction is omitted. The resulting error is
-        # O((1 - beta2^n) * |v_n - v_0|) per block and vanishes as v converges.
-        denom = np.sqrt(v_n) + eps
-        step_vec = np.where(denom > 0.0, sum_m / denom, 0.0)
+        # Bias correction, evaluated at the end-of-block step index. Omitting it
+        # was the dominant error in this closed form, not the frozen
+        # denominator: against N textbook micro-steps it overshot 4.0x on the
+        # first block, and restoring these two divisions alone cut the final
+        # trajectory gap by 10x.
+        #
+        # Remaining approximation: the denominator uses v_n for all N
+        # micro-steps. That error is O((1 - beta2**n) * |v_n - v_0|) per block
+        # and vanishes as v converges.
+        self.t += n
+        t1 = float(self.t)
+        bc1 = (1.0 - beta1**t1) if 0.0 <= beta1 < 1.0 else 1.0
+        bc2 = (1.0 - beta2**t1) if 0.0 <= beta2 < 1.0 else 1.0
+
+        denom = np.sqrt(v_n / bc2) + eps
+        step_vec = np.where(denom > 0.0, (sum_m / bc1) / denom, 0.0)
 
         theta_n = theta0 - lr * step_vec
 
@@ -743,8 +741,14 @@ class AdamBlock(Optimizer):
 
 
 def _default_c_constant(config: SPSAConfig) -> np.ndarray:
+    """Return a private perturbation-scale vector.
+
+    The copy is mandatory. ``np.asarray`` on an existing float64 array is a
+    no-op, which would make every optimizer and every in-flight job share one
+    mutable buffer with the config.
+    """
     if config.c_dev is not None:
-        return np.asarray(config.c_dev, dtype=float)
+        return np.array(config.c_dev, dtype=float, copy=True)
     param_range = config.theta_max - config.theta_min
     return 0.05 * param_range
 

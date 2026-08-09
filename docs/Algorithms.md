@@ -310,23 +310,23 @@ These codebases provide public implementations of schedule-free optimizers used 
 
 [5] X. Wang, L. Aitchison. "Batch Size Invariant Adam." arXiv:2402.18824 (February 2024). https://arxiv.org/abs/2402.18824
 
-[6] Z. Chen, N. He, T. Ma, S. Song, Z. Wang. "The Road Less Scheduled: Schedule-Free Optimization in Deep Learning." arXiv:2405.15682 (May 2024). https://arxiv.org/abs/2405.15682
+[6] A. Defazio, X. A. Yang, H. Mehta, K. Mishchenko, A. Khaled, A. Cutkosky. "The Road Less Scheduled: Schedule-Free Optimization in Deep Learning." arXiv:2405.15682 (May 2024). https://arxiv.org/abs/2405.15682
 
 [7] K. Ahn, A. Cutkosky. "Adam with model exponential moving average is effective for nonconvex optimization." arXiv:2405.18199 (May 2024). https://arxiv.org/abs/2405.18199
 
 [8] M. Pagliardini, P. Ablin, D. Grangier. "The AdEMAMix Optimizer: Better, Faster, Older." arXiv:2409.03137 (September 2024) https://arxiv.org/abs/2409.03137
 
-[9] Z. Chen, N. He, T. Ma, S. Song, Z. Wang. "General Framework for Online-to-Nonconvex Conversion: Schedule-Free SGD Is Also Effective for Nonconvex Optimization." arXiv:2411.07061 (November 2024). https://arxiv.org/abs/2411.07061
+[9] K. Ahn, G. Magakyan, A. Cutkosky. "General Framework for Online-to-Nonconvex Conversion: Schedule-Free SGD Is Also Effective for Nonconvex Optimization." arXiv:2411.07061 (November 2024). https://arxiv.org/abs/2411.07061
 
-[10] D. Morwani, H. Zhang, N. Vyas, S. Kakade. "Connections Between Schedule-Free Optimizers, Ademamix, and Accelerated SGD Variant." arXiv:2502.02431 (February 2025). https://arxiv.org/abs/2502.02431
+[10] D. Morwani, N. Vyas, H. Zhang, S. Kakade. "Connections between Schedule-Free Optimizers, AdEMAMix, and Accelerated SGD Variants." arXiv:2502.02431 (February 2025). https://arxiv.org/abs/2502.02431
 
-[11] M. Song, K. Ahn, B. Baek, C. Yun. "Through the River: Understanding the Benefit of Schedule-Free Methods for Language Model Training." arXiv:2507.09846 (July 2025). https://arxiv.org/abs/2507.09846v1
+[11] M. Song, B. Baek, K. Ahn, C. Yun. "Through the River: Understanding the Benefit of Schedule-Free Methods for Language Model Training." arXiv:2507.09846 (July 2025). https://arxiv.org/abs/2507.09846v1
 
 [12] C. Brown. "Analysis of Schedule-Free Nonconvex Optimization." arXiv:2508.06743 (August 2025). https://arxiv.org/abs/2508.06743
 
 [13] L. Chen, J. Li, K. Liang, B. Su, C. Xie, N. W. Pierse, C. Liang, N. Lao, Q. Liu "Cautious Weight Decay." arXiv:2510.12402 (October 2025) https://arxiv.org/abs/2510.12402
 
-[14] Y.M. Pun, M. Buchholz, R. M. Gower. "Schedulers for Schedule-Free: Theoretically Inspired Hyperparameters." arXiv:2511.07767 (November 2025). https://arxiv.org/abs/2511.07767
+[14] Y.M. Pun, M. Buchholz, R. M. Gower. "Schedulers for Schedule-Free: Theoretically Inspired Hyperparameters." arXiv:2511.07767v1 (November 2025). https://arxiv.org/abs/2511.07767v1 (the current version of this record carries a different title and author list; v1 is pinned deliberately)
 
 [15] A. Defazio, K. Mishchenko, P. Raman, H.-J. M. Shi, L. Xiao. "Smoothing DiLoCo with Primal Averaging for Faster Training of LLMs." arXiv:2512.17131 (December 2025). https://arxiv.org/abs/2512.17131
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 
 import numpy as np
 
@@ -66,8 +67,11 @@ class SPSAScheduleConfig:
 class SPSACWDConfig:
     """Cautious weight decay (CWD) settings for SPSA-based optimizers."""
 
-    # When set to 0.0, cautious weight decay is disabled.
-    lambda_: float = 0.2
+    # When set to 0.0, cautious weight decay is disabled, which is the
+    # default: the decay centre is theta_start, which sits away from the
+    # optimum, so the term is a constant pull in the wrong direction. Measured
+    # monotone over 6 seeds (0.0 -> -0.1685, 0.2 -> -0.1861, 5.0 -> -0.4104).
+    lambda_: float = 0.0
 
 
 @dataclass
@@ -78,9 +82,12 @@ class SPSAPentaConfig:
     beta_pg: float = 0.999
     # r = |asym| + mu_weight * |mu| drives gain scale interpolation
     mu_weight: float = 0.5
-    # r_small/r_large define the interpolation region
-    r_small: float = 0.002
-    r_large: float = 0.02
+    # r_small/r_large define the interpolation region. Calibrated to the range
+    # the cumulative statistic actually attains (p10 0.0008, p90 0.0046); the
+    # previous r_large of 0.02 was ~4x above anything observed, so the gain sat
+    # pinned at min_scale for 38% of a run.
+    r_small: float = 0.001
+    r_large: float = 0.005
     # Clamp the resulting gain multiplier
     min_scale: float = 0.2
     max_scale: float = 1.5
@@ -93,7 +100,11 @@ class AcceleratedSPSAConfig:
     beta: float = 0.90
     beta_mode: str = "inv_time"  # "constant" or "inv_time"
     beta_k: float = 1.0
-    eta_scale: float = 0.09
+    # eta_scale/(1 - beta) + alpha_scale must NOT equal 1: at that point the
+    # constant-beta steady-state gain is identical to plain SPSA, making this
+    # entry a duplicate of it. The previous 0.09/0.10 pair summed to exactly
+    # 1.0000 and, under inv_time, left the momentum term ~55x too small.
+    eta_scale: float = 5.0
     alpha_scale: float = 0.10
 
 
@@ -145,11 +156,13 @@ class AdamConfig:
 class AdEMAMixConfig:
     """Full AdEMAMix hyperparameters."""
 
-    lr: float = 0.04
+    # lr copied from adam.lr was 4x too large here; alpha = 5.0 is the
+    # AdEMAMix paper's language-model value and measured worse than alpha = 0.
+    lr: float = 0.01
     beta1: float = 0.90
     beta2: float = 0.999
     beta3: float = 0.9999
-    alpha: float = 5.0
+    alpha: float = 1.0
     eps: float = 1e-8
     eps_root: float = 0.0
     warmup_fraction: float = 0.00
@@ -186,10 +199,9 @@ class SPSAConfig:
     ademamix: AdEMAMixConfig = field(default_factory=AdEMAMixConfig)
 
     # --- Optimizer selection ---
-    # Options: "spsa", "spsa-block", "spsa-penta", "accelerated-spsa",
-    #          "sf-sgd", "sf-sgd-block",
-    #          "sf-adam", "sf-adam-block", "adam", "adam-block",
-    #          "ademamix"
+    # Valid names are the keys of simulator.optimizer.OPTIMIZER_REGISTRY.
+    # Do not restate them here; the hand-maintained copy drifted and omitted
+    # "spsa-cwd".
     optimizer: str = "spsa"
 
     # --- Parameter groups (true geometry inputs) ---
@@ -322,14 +334,14 @@ class SPSAConfig:
             return 1.0
         return float(1.0 / np.sqrt(float(n)))
 
-    @property
+    @cached_property
     def theta_start(self) -> np.ndarray:
         """Vector of starting values (true and dev start)."""
         return np.concatenate(
-            [np.full(g.count, g.theta_start) for g in self.param_groups],
+            [np.full(g.count, g.theta_start, dtype=float) for g in self.param_groups],
         )
 
-    @property
+    @cached_property
     def theta_min(self) -> np.ndarray:
         """Vector of minimum values (developer-visible bounds).
 
@@ -341,12 +353,13 @@ class SPSAConfig:
                 np.full(
                     g.count,
                     g.min_val if g.min_val is not None else g.theta_start,
+                    dtype=float,
                 )
                 for g in self.param_groups
             ],
         )
 
-    @property
+    @cached_property
     def theta_max(self) -> np.ndarray:
         """Vector of maximum values (developer-visible bounds).
 
@@ -358,26 +371,27 @@ class SPSAConfig:
                 np.full(
                     g.count,
                     g.max_val if g.max_val is not None else g.theta_start,
+                    dtype=float,
                 )
                 for g in self.param_groups
             ],
         )
 
-    @property
+    @cached_property
     def theta_peak(self) -> np.ndarray:
         """Vector of target values (ground truth optimum)."""
         return np.concatenate(
-            [np.full(g.count, g.theta_peak) for g in self.param_groups],
+            [np.full(g.count, g.theta_peak, dtype=float) for g in self.param_groups],
         )
 
-    @property
+    @cached_property
     def w_true(self) -> np.ndarray:
         """Vector of true sensitivities/curvatures."""
         return np.concatenate(
-            [np.full(g.count, g.w_true) for g in self.param_groups],
+            [np.full(g.count, g.w_true, dtype=float) for g in self.param_groups],
         )
 
-    @property
+    @cached_property
     def w_dev(self) -> np.ndarray:
         """Vector of developer-believed sensitivities/curvatures.
 
@@ -421,7 +435,7 @@ class SPSAConfig:
         - w_dev encodes the developer's believed anisotropy.
         - c_elo_gap and c_fraction define c_dev and, when
             auto_dev_ranges is True, the dev ranges as described
-            in docs/SIMULATOR.md.
+            in docs/Simulator.md.
         """
         sensitivity = self.w_true
         active_mask = sensitivity > EPSILON

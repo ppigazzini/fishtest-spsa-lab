@@ -211,9 +211,14 @@ Let `D0` be your current Elo drop from the local peak (in the same near-peak app
 Then under the same late-stage hyperparameters the model suggests:
 
 ```text
-improvement_max(T)   ≈ max(0, D0 - D_T)
+improvement_max(T)   ≈ max(0, (1 - a**T) * D0 - D_T)
 improvement_max(inf) ≈ max(0, D0 - D_inf)
 ```
+
+The `(1 - a**T)` factor is not optional at finite `T`: starting from
+`S_0 = D0/k` the recursion gives `drop(T) = a**T * D0 + D_T`. Using the
+`T -> inf` form at finite `T` overstates the achievable improvement by about
+4.6x at the default `N = 12`, `T = 1000`.
 
 This is an **expected-value** bound for this simplified system; individual runs fluctuate.
 

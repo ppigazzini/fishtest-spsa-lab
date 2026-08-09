@@ -15,6 +15,7 @@ from fishtest_spsa_lab.simulator.runner import (
     SpsaRunner,
     make_workers,
 )
+from fishtest_spsa_lab.simulator.stats import mean_ci, paired_diff
 
 # Configure logging
 logging.basicConfig(
@@ -89,6 +90,7 @@ def plot_basic_results(result: dict) -> None:  # noqa: C901, PLR0912, PLR0915
 
     plt.tight_layout()
     plt.show()
+    plt.close(_fig)
 
     # Optional asymmetry / mean plots for optimizers that expose them
     # (currently SPSA-penta).
@@ -172,6 +174,7 @@ def plot_basic_results(result: dict) -> None:  # noqa: C901, PLR0912, PLR0915
             )
             plt.tight_layout()
             plt.show()
+            plt.close(fig_penta)
 
             # --- Penta coefficient / gain scale history ---
             if (penta_coeff_hist is not None and penta_coeff_hist.size > 0) or (
@@ -206,98 +209,93 @@ def plot_basic_results(result: dict) -> None:  # noqa: C901, PLR0912, PLR0915
                 )
                 plt.tight_layout()
                 plt.show()
+                plt.close(fig_coeff)
 
 
-def main() -> None:
-    """Run the main entry point."""
-    optimizers = list(OPTIMIZER_REGISTRY)
+BASELINE_OPTIMIZER = "spsa"
+DEFAULT_SEEDS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8)
 
-    # Common configuration parameters
+
+def _run_one(optimizer: str, seed: int, **kwargs: object) -> float:
+    """Run one optimizer at one seed and return the final Elo."""
+    config = SPSAConfig(optimizer=optimizer, seed=seed, **kwargs)  # ty: ignore
+    runner: SpsaRunner
+    if config.num_workers > 1:
+        workers = make_workers(config, np.random.default_rng(seed))
+        runner = AsyncSpsaRunner(config, workers=workers)
+    else:
+        runner = SpsaRunner(config)
+    return float(runner.run()["convergence_metrics"]["final_elo"])
+
+
+def main() -> int:
+    """Compare every registered optimizer over a shared set of seeds."""
     num_pairs = 30_000
     batch_size = 36
     num_workers = 20
-    variable_batch_size = True
+    seeds = DEFAULT_SEEDS
 
-    # Build a shared worker pool (same concurrencies and speeds for all runs)
-    base_worker_config = SPSAConfig(
-        num_pairs=num_pairs,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        variable_batch_size=variable_batch_size,
+    optimizers = list(OPTIMIZER_REGISTRY)
+    if BASELINE_OPTIMIZER not in optimizers:
+        logger.error("baseline %r is not registered", BASELINE_OPTIMIZER)
+        return 1
+
+    logger.info(
+        "Comparing %d optimizers over %d seeds (%d pairs, batch %d, %d workers)",
+        len(optimizers),
+        len(seeds),
+        num_pairs,
+        batch_size,
+        num_workers,
     )
-    worker_rng = np.random.default_rng(base_worker_config.seed)
-    workers = make_workers(base_worker_config, worker_rng)
 
-    for opt_name in optimizers:
-        logger.info("=" * 60)
-        logger.info("Running Simulation with Optimizer: %s", opt_name)
-        logger.info("=" * 60)
+    # Same seeds, same worker pool, same match noise for every arm: the
+    # comparison is paired, so the between-seed variance cancels.
+    results: dict[str, list[float]] = {name: [] for name in optimizers}
+    for seed in seeds:
+        for name in optimizers:
+            results[name].append(
+                _run_one(
+                    name,
+                    seed,
+                    num_pairs=num_pairs,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    variable_batch_size=True,
+                ),
+            )
+        logger.info("seed %d complete", seed)
 
-        config = SPSAConfig(
-            optimizer=opt_name,
-            num_pairs=num_pairs,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            variable_batch_size=variable_batch_size,
-        )
+    baseline = results[BASELINE_OPTIMIZER]
+    start_elo = SPSAConfig().start_elo
 
-        logger.info(
-            "Starting optimization (%s) with config:\n%s",
-            opt_name,
-            config,
-        )
+    logger.info("")
+    logger.info(
+        "Final Elo, mean +- 95%% CI over %d seeds (start %.3f)", len(seeds), start_elo
+    )
+    header = (
+        f"{'optimizer':<18}{'mean':>9}{'95% CI':>22}"
+        f"{'paired vs ' + BASELINE_OPTIMIZER:>28}"
+    )
+    logger.info(header)
+    logger.info("-" * len(header))
 
-        # Select runner based on workers
-        if config.num_workers > 1:
-            runner = AsyncSpsaRunner(config, workers=workers)
+    ranked = sorted(optimizers, key=lambda n: -mean_ci(results[n]).mean)
+    for name in ranked:
+        est = mean_ci(results[name])
+        if name == BASELINE_OPTIMIZER:
+            verdict = "(baseline)"
         else:
-            runner = SpsaRunner(config)
+            diff = paired_diff(results[name], baseline)
+            mark = "*" if diff.separated_from_zero else "(ns)"
+            verdict = f"{diff.mean:+.4f} +- {diff.half_width:.4f} {mark}"
+        ci = f"[{est.low:+.4f}, {est.high:+.4f}]"
+        logger.info("%-18s%9.4f%22s%28s", name, est.mean, ci, verdict)
 
-        result = runner.run()
-        # config is already in result from runner.run()
-
-        logger.info("\n--- Simulation Summary (%s) ---", opt_name)
-        logger.info(
-            "Simulation complete in %.2f seconds.",
-            result["elapsed_time"],
-        )
-        # Parameter summary (active / inactive / total)
-        num_active = int(np.count_nonzero(config.w_true))
-        num_inactive = int(config.num_params - num_active)
-        logger.info(
-            "Params summary: active=%d inactive=%d (total=%d)",
-            num_active,
-            num_inactive,
-            config.num_params,
-        )
-        # Theta snapshots around the run (config-level start/target + final)
-        logger.info(
-            "Initial Theta (first 5): %s",
-            config.theta_start[:5],
-        )
-        logger.info(
-            "Target Theta (first 5) : %s",
-            config.theta_peak[:5],
-        )
-        logger.info(
-            "Final Theta (first 5)  : %s",
-            result["final_params"][:5],
-        )
-
-        # Convergence metrics are already calculated in runner
-        metrics = result["convergence_metrics"]
-        logger.info("Convergence metrics: %s", metrics)
-
-        # Plot
-        if hasattr(sys, "ps1") or "ipykernel" in sys.modules:
-            plot_basic_results(result)
-        else:
-            # Fallback for non-interactive environments if needed,
-            # but user requested interactive charts.
-            # We'll try to show it anyway.
-            try:
-                plot_basic_results(result)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Could not display plot: %s", e)
-
-    logger.info("\nAll simulations complete.")
+    logger.info("")
+    logger.info(
+        "'*' marks a paired difference whose 95%s interval excludes zero; "
+        "'(ns)' means the arms are not separated at this sample size.",
+        "%",
+    )
+    return 0

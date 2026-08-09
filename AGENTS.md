@@ -35,7 +35,9 @@ uv run --group dev ty check
 uv run --group dev pre-commit run --all-files
 ```
 
-The lab's tools are console scripts in `[project.scripts]`; all take `--help`:
+The lab's tools are console scripts in `[project.scripts]`. **Only `noise-ball`,
+`optimize-spsa-toy` and `validate-penta` parse arguments.** The other eight
+ignore `--help` and run the full simulation instead, opening plot windows:
 
 ```sh
 uv run run-simulation        # 12-optimizer sweep -- unseeded, see the traps
@@ -61,16 +63,21 @@ a block-reporting distributed tuner equivalent to the textbook algorithm, and
 `analysis/validate_*.py` exists to pin it. These are the real regression suite;
 `tests/` is thinner than it looks.
 
-**2. The noise ball closed form.** For constant gain,
+**2. The noise ball.** `docs/Noise_ball.md` derives a stationary Elo floor from
+a rank-1 second-moment recursion, ending at `D_inf = k * S_*`; `analysis/
+noise_ball.py :: estimate_noise_ball_isotropic_end` computes it. Taking the
+small-gain limit, `k` and `c` cancel and it reduces to
 
 ```text
 E[Elo drop] = -(r_end / 16) * C * n_active * sigma2,    C = 800/ln(10)
 ```
 
-`docs/Noise_ball.md` derives this from a rank-1 second-moment recursion and
-`../spsa_simul` proves it from an SDE. **They agree to 1 part in 10,000** across
-N = 4..64. Any change to `analysis/noise_ball.py` that breaks that agreement is
-wrong until proven otherwise.
+which is what `../spsa_simul` proves from an SDE, and the two agree to 1 part in
+10,000 across N = 4..64. **Neither the page nor the module states that reduced
+form or the `n_active` distinction** -- both are results from
+`__DEV/260809-0-REPORT.md`, not from the code. Any change to
+`analysis/noise_ball.py` that breaks the agreement is wrong until proven
+otherwise.
 
 **3. The Fishtest protocol.** Dispatch snapshots `theta` and `flip`; the result
 applies to whatever `theta` is current at arrival; `iter` counts pairs and
@@ -119,8 +126,8 @@ never report it as a pass.
 | **`mu2_hat`/`update_mu2_stats` exist three times** (`analysis/common.py`, `simulator/optimizer.py::SFAdamBlock`, `validate_sf_adam.py`), identical down to the `min(max(mu2, 1e-12), 4.0)` clamp. Change one and the others silently diverge. | one edit is never enough |
 | **`tests/` is 3.7% of source and shallow.** `test_single_step_all_optimizers` asserts only that the array shape did not change, so it passes on an optimizer that never moves. `runner.py` (714 lines) has zero coverage. A green suite is weak evidence. | strengthen before trusting |
 | **An optimizer must never read ground truth.** `w_true`, `theta_peak` and `k_elo` are the simulator's, not the tuner's. `w_dev` and `c_dev` are the developer's belief. Leaking the first set makes every result meaningless and nothing will complain. | `simulator/config.py` |
-| **Verify every arXiv citation against arXiv.** ID, full author list, year. This repo has already shipped `[6]` with entry `[9]`'s authors, and a prior prompt supplied three wrong IDs. | never cite from memory |
-| **`docs/` is ASCII-only** unless the page documents Unicode behaviour. | `__DEV/DOCS-BEST-PRACTICES.md` |
+| **Verify every arXiv citation against arXiv.** ID, full author list, year, and that the live page still shows the cited title. **5 of 16 entries in `docs/Algorithms.md` are wrong**: `[6]` and `[9]` both carry the same fabricated five-author list (correct for neither -- `[6]` is Defazio et al., `[9]` is Ahn/Magakyan/Cutkosky); `[10]` and `[11]` have wrong author order and `[10]` a wrong title; `[14]`'s link now resolves to a different paper. A prior prompt also supplied three wrong IDs. | never cite from memory |
+| **The "ASCII-only" rule is dead as written.** `__DEV/DOCS-BEST-PRACTICES.md:26` states it; all nine `docs/` pages break it, using theta/phi/sigma/Delta and the usual math operators. Prose and this file stay ASCII; mathematical notation in `docs/` does not. The standard needs amending, not the pages. | unresolved |
 
 ## Experiments
 

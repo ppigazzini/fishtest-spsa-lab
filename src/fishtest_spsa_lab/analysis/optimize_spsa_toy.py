@@ -645,7 +645,7 @@ def _estimate_noise_drop_end_proxy(
     """Estimate infinite-time noise drop at fixed end-of-run (c_end, r_end).
 
     This diagnostic is computed in Fishtest's phi-normalized coordinates
-    (see docs/ALGORITHMS.md): theta = c * phi elementwise. In phi-space the
+    (see docs/Algorithms.md): theta = c * phi elementwise. In phi-space the
     constant learning rate is r_end and c only enters once via the objective
     curvature (H_phi = C G C / X_SCALE^2).
     """
@@ -755,7 +755,13 @@ class MatchSimulator:
 
         # PentaModel convention: opponentElo = (opponent - player).
         # Here we treat `x_plus` as the player and `x_minus` as the opponent.
-        opponent_elo = elo_minus - elo_plus
+        # Clip as GameProvider.simulate_match does: PentaModel raises above
+        # +-600, and this optimizer is unbounded and does diverge at large
+        # r_end, so an unclipped call is a reachable crash rather than a
+        # theoretical one.
+        opponent_elo = float(
+            np.clip(elo_minus - elo_plus, -ELO_CLIP_RANGE, ELO_CLIP_RANGE)
+        )
 
         # Fast sampling: the pentanomial match result is multinomial with the
         # precomputed category probabilities. This avoids Python-per-round loops.
@@ -1308,9 +1314,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-batches", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=12345)
     parser.add_argument(
+        # Matches SPSAOptimizer's own class default. At 0.001 a 108k-pair run
+        # covers under 1% of the distance to the peak.
         "--r-end",
         type=float,
-        default=0.001,
+        default=0.01,
         help=(
             "End-of-run learning rate r_end (i.e., r_k at the last pair index). "
             "In fishtest terms this is the phi-space learning rate; the per-axis "

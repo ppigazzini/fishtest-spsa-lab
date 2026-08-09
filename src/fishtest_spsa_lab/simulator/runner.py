@@ -117,6 +117,7 @@ class JobEvent:
     c_k: np.ndarray = field(compare=False)
     iter_local: int = field(compare=False)
     batch_size_pairs: int = field(compare=False)
+    batch_index: int = field(compare=False)
 
 
 @dataclass
@@ -164,7 +165,19 @@ class SpsaRunner:
     def __init__(self, config: SPSAConfig) -> None:
         """Initialize the SpsaRunner with the given configuration."""
         self.config = config
-        self.rng = np.random.default_rng(config.seed)
+
+        # Independent streams. A single Generator desynchronizes between arms
+        # as soon as trajectories differ, because multinomial consumes a
+        # p-dependent number of raw draws -- so a "same seed" A/B is not a
+        # paired comparison. Spawning keeps perturbations, durations and the
+        # worker pool identical across optimizers, and the match stream is
+        # re-derived per batch index so it is common across arms too.
+        root = np.random.SeedSequence(config.seed)
+        pert_ss, dur_ss, pool_ss, self._match_ss = root.spawn(4)
+        self.rng_perturb = np.random.default_rng(pert_ss)
+        self.rng_duration = np.random.default_rng(dur_ss)
+        self.rng_pool = np.random.default_rng(pool_ss)
+
         self.game_provider = GameProvider(config)
 
         # Initialize optimizer
@@ -179,6 +192,19 @@ class SpsaRunner:
         self.spsa_signal_history = []
         # Cumulative pairs processed after each optimizer step
         self.pairs_history: list[int] = [0]
+
+    def _match_rng(self, batch_index: int) -> np.random.Generator:
+        """Return the match-noise stream for a given batch index.
+
+        Indexing by batch rather than drawing sequentially makes the match
+        noise common across optimizer arms, which is what turns a seed sweep
+        into a paired comparison.
+        """
+        child = np.random.SeedSequence(
+            entropy=self._match_ss.entropy,
+            spawn_key=(*self._match_ss.spawn_key, int(batch_index)),
+        )
+        return np.random.default_rng(child)
 
     def run(self) -> dict:
         """Run the SPSA optimization simulation."""
@@ -198,7 +224,7 @@ class SpsaRunner:
 
             # 2. Generate Perturbation
             current_theta = self.optimizer.get_params()
-            flip = self.rng.choice([-1, 1], size=self.config.num_params)
+            flip = self.rng_perturb.choice([-1, 1], size=self.config.num_params)
 
             theta_plus = np.clip(
                 current_theta + c_k * flip,
@@ -215,7 +241,7 @@ class SpsaRunner:
             net_wins, counts = self.game_provider.simulate_match(
                 theta_plus,
                 theta_minus,
-                self.rng,
+                self._match_rng(batch_idx),
                 batch_size_pairs=batch_size_pairs,
             )
 
@@ -262,8 +288,16 @@ class SpsaRunner:
     def _collect_results(self, start_time: float) -> dict:
         """Package results."""
         elapsed_time = time.time() - start_time
-        # In the synchronous runner we always consume the full budget.
-        total_pairs = int(self.config.num_pairs)
+        # num_batches truncates, so the requested budget is not always spent.
+        num_batches = self.config.num_pairs // self.config.batch_size
+        total_pairs = int(num_batches * self.config.batch_size)
+        if total_pairs != int(self.config.num_pairs):
+            logger.warning(
+                "num_pairs=%d is not a multiple of batch_size=%d; simulated %d pairs",
+                self.config.num_pairs,
+                self.config.batch_size,
+                total_pairs,
+            )
 
         convergence_metrics = collect_convergence_metrics(
             self.config,
@@ -322,7 +356,7 @@ class AsyncSpsaRunner(SpsaRunner):
 
         # Optional heterogeneous worker pool (can be shared across runs)
         if workers is None:
-            self.workers: list[SimWorker] = make_workers(self.config, self.rng)
+            self.workers: list[SimWorker] = make_workers(self.config, self.rng_pool)
         else:
             if len(workers) != self.config.num_workers:
                 msg = (
@@ -347,6 +381,9 @@ class AsyncSpsaRunner(SpsaRunner):
         # Track per-job batch sizes (in pairs) for diagnostics
         self.batch_sizes: list[int] = []
 
+        # Monotonic job counter; indexes the common match-noise stream.
+        self.jobs_dispatched = 0
+
         # Out-of-order diagnostics
         self.lags: list[int] = []
         self.normalized_lags: list[float] = []
@@ -354,6 +391,9 @@ class AsyncSpsaRunner(SpsaRunner):
 
         # Cache the update-signal scaling factor once per run.
         self._signal_scale = float(self.config.gradient_scale_factor)
+
+        # Watermark for periodic progress logging.
+        self._next_log_at = max(1, self.config.batch_size * LOG_INTERVAL)
 
     def _schedule_job(self, worker_id: int) -> None:
         """Dispatch a new job to the given worker."""
@@ -391,7 +431,7 @@ class AsyncSpsaRunner(SpsaRunner):
 
         # Generate Perturbation (Snapshot of current theta)
         current_theta = self.optimizer.get_params().copy()
-        flip = self.rng.choice([-1, 1], size=self.config.num_params)
+        flip = self.rng_perturb.choice([-1, 1], size=self.config.num_params)
 
         # Calculate Duration: model per-game durations and true parallelism.
         #
@@ -408,7 +448,7 @@ class AsyncSpsaRunner(SpsaRunner):
         lane_heap = [0.0] * lane_count
         heapq.heapify(lane_heap)
         max_lane_time = 0.0
-        for duration in self.rng.lognormal(mu, sigma, size=batch_size_games):
+        for duration in self.rng_duration.lognormal(mu, sigma, size=batch_size_games):
             t = heapq.heappop(lane_heap) + float(duration)
             max_lane_time = max(max_lane_time, t)
             heapq.heappush(lane_heap, t)
@@ -424,7 +464,9 @@ class AsyncSpsaRunner(SpsaRunner):
             c_k=c_k,
             iter_local=iter_local,
             batch_size_pairs=batch_size_pairs,
+            batch_index=self.jobs_dispatched,
         )
+        self.jobs_dispatched += 1
         heapq.heappush(self.event_queue, event)
 
     def run(self) -> dict:
@@ -442,14 +484,22 @@ class AsyncSpsaRunner(SpsaRunner):
             self._schedule_job(w_id)
 
         # Event Loop
+        budget_exhausted = True
         while self.pairs_processed < self.config.num_pairs:
             if not self.event_queue:
+                budget_exhausted = False
+                logger.warning(
+                    "Event queue drained after %d of %d pairs; dispatch stalled.",
+                    self.pairs_processed,
+                    self.config.num_pairs,
+                )
                 break
 
             self._process_next_event()
 
         elapsed_time = time.time() - start_real_time
         convergence_metrics, lag_stats, final_theta = self._finalize_async_run()
+        convergence_metrics["budget_exhausted"] = budget_exhausted
 
         result: dict[str, object] = {
             "config": self.config,
@@ -519,7 +569,7 @@ class AsyncSpsaRunner(SpsaRunner):
         net_wins, counts = self.game_provider.simulate_match(
             theta_plus,
             theta_minus,
-            self.rng,
+            self._match_rng(event.batch_index),
             batch_size_pairs=batch_size_pairs,
         )
 
@@ -549,9 +599,12 @@ class AsyncSpsaRunner(SpsaRunner):
         self.spsa_signal_history.append(scaled_net_wins * event.flip)
         self.pairs_history.append(self.pairs_processed)
 
-        # Log approximately every batch_size pairs, scaled by LOG_INTERVAL
+        # Watermark, not modulo: under variable batch sizes the cumulative
+        # pair counter almost never lands exactly on a multiple, so the modulo
+        # form logged 0 of 1041 events in a measured run.
         log_interval_pairs = max(1, self.config.batch_size * LOG_INTERVAL)
-        if self.pairs_processed % log_interval_pairs == 0:
+        if self.pairs_processed >= self._next_log_at:
+            self._next_log_at = self.pairs_processed + log_interval_pairs
             current_elo = objective_function(
                 self.optimizer.get_params(),
                 self.config,
@@ -695,14 +748,17 @@ class AsyncSpsaRunner(SpsaRunner):
                 "norm_p50": float(np.percentile(normalized_lags_array, 50)),
                 "norm_p90": float(np.percentile(normalized_lags_array, 90)),
                 "norm_p99": float(np.percentile(normalized_lags_array, 99)),
-                "weighted_abs_share_pct": float(
-                    100.0 * self.weighted_abs_lag_pairs / max(1, self.pairs_processed),
+                # Pair-weighted mean absolute lag, in PAIRS. This was
+                # previously divided and multiplied by 100 and printed with a
+                # "%" suffix, which produced readings like "share=20998.88%".
+                "weighted_abs_lag_pairs": float(
+                    self.weighted_abs_lag_pairs / max(1, self.pairs_processed),
                 ),
             }
             logger.info(
-                "Out-of-order: share=%.2f%% p50=%+.0f p90=%+.0f p99=%+.0f (pairs); "
+                "Out-of-order: mean|lag|=%.1f p50=%+.0f p90=%+.0f p99=%+.0f (pairs); "
                 "norm p50=%+.2f p90=%+.2f p99=%+.2f (batches)",
-                lag_stats["weighted_abs_share_pct"],
+                lag_stats["weighted_abs_lag_pairs"],
                 lag_stats["p50"],
                 lag_stats["p90"],
                 lag_stats["p99"],

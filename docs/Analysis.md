@@ -63,7 +63,7 @@ Validates the standard SPSA update rule and how its batched "macro" update compa
 - **Micro mean path**: Sequential SPSA updates with `S_i / N_i` repeated `N_i` times inside each report.
 - **Micro real path**: Sequential SPSA updates with the true per-pair outcomes.
 
-Plots in [src/fishtest_spsa_lab/analysis/validate_spsa.py](src/fishtest_spsa_lab/analysis/validate_spsa.py):
+Plots in [src/fishtest_spsa_lab/analysis/validate_spsa.py](../src/fishtest_spsa_lab/analysis/validate_spsa.py):
 
 - **Single schedule (Figure 1)** -- θ vs pairs, legend order:
     - `theta -- micro real` (ground-truth sequential SPSA)
@@ -85,7 +85,7 @@ Validates the schedule-free Polyak averaging logic.
 - **Micro mean path**: Sequential schedule-free SGD updates with `S_i / N_i` repeated `N_i` times.
 - **Micro real path**: Sequential schedule-free SGD with the true outcomes.
 
-Plots in [src/fishtest_spsa_lab/analysis/validate_sf_sgd.py](src/fishtest_spsa_lab/analysis/validate_sf_sgd.py):
+Plots in [src/fishtest_spsa_lab/analysis/validate_sf_sgd.py](../src/fishtest_spsa_lab/analysis/validate_sf_sgd.py):
 
 - **Single schedule (Figure 1)** -- three panels for `x`, `z`, and `theta` vs pairs; in each panel the legend order is:
     - `... micro real`
@@ -102,13 +102,13 @@ Validates the adaptive second-moment estimation and its block-wise approximation
 - **State**: Tracks `z`, Polyak surrogate `x`, blended `theta`, and second moment `v`.
 - **Online second-moment (mu2) estimation**:
     - The optimizer needs an estimate of `E[g^2]` (expected squared gradient).
-    - [src/fishtest_spsa_lab/analysis/validate_variance.py](src/fishtest_spsa_lab/analysis/validate_variance.py) implements `OnlineReportStats`, which computes an exact block-averaged estimator using only `(N_i, s_i, s_i^2/N_i)`.
+    - [src/fishtest_spsa_lab/analysis/validate_variance.py](../src/fishtest_spsa_lab/analysis/validate_variance.py) implements `OnlineReportStats`, which computes an exact block-averaged estimator using only `(N_i, s_i, s_i^2/N_i)`.
     - `validate_sf_adam.py` mirrors this logic via report-level aggregates plus an optional warm-start prior.
 - **Macro path**: One update per report using block summaries and closed-form Adam-style `v` evolution.
 - **Micro mean path**: Replays the same online μ^2 estimator at micro-step resolution, with `S_i / N_i` repeated `N_i` times.
 - **Micro real path**: Full per-outcome schedule-free Adam with per-step `g` and `g^2`.
 
-Plots in [src/fishtest_spsa_lab/analysis/validate_sf_adam.py](src/fishtest_spsa_lab/analysis/validate_sf_adam.py):
+Plots in [src/fishtest_spsa_lab/analysis/validate_sf_adam.py](../src/fishtest_spsa_lab/analysis/validate_sf_adam.py):
 
 - **Single schedule (Figure 1)** -- `x`, `z`, and `theta` vs pairs, legend order in each panel:
     - `... micro real`
@@ -137,7 +137,7 @@ Validates a block-level Adam variant against textbook (per-outcome) Adam.
     - Summing the first-moment ladder `sum_m = sum_{t=1..N_i} m_t` in closed form.
     - Approximating the `N_i` θ updates with one block step using a frozen denominator `sqrt(v_{N_i}) + eps`.
 
-Plots in [src/fishtest_spsa_lab/analysis/validate_adam.py](src/fishtest_spsa_lab/analysis/validate_adam.py):
+Plots in [src/fishtest_spsa_lab/analysis/validate_adam.py](../src/fishtest_spsa_lab/analysis/validate_adam.py):
 
 - **Single schedule (Figure 1)** -- θ vs pairs, legend order:
     - `theta -- micro real`
@@ -173,7 +173,7 @@ penta outcomes and tracks these histories:
     `r = |A_cum| + mu_weight * |mu_cum|`, then map linearly from `(r_small, r_large)` to
     `(min_scale, max_scale)` (intentionally not clamped, so experiments can observe extrapolation).
 
-Plots in [src/fishtest_spsa_lab/analysis/validate_pentanomial.py](src/fishtest_spsa_lab/analysis/validate_pentanomial.py):
+Plots in [src/fishtest_spsa_lab/analysis/validate_pentanomial.py](../src/fishtest_spsa_lab/analysis/validate_pentanomial.py):
 
 - **Pentanomial asymmetry/mean** -- two panels:
     - Asymmetry panel: `EMA Asymmetry A` and `Cumulative Asymmetry A` vs `Pairs processed`.
@@ -245,7 +245,7 @@ CLI usage (entrypoint `validate-penta`):
 The analysis module also ships a fast, standalone toy demo intended for intuition-building and
 performance experiments (vectorization, multinomial sampling, plotting, logging).
 
-File: [src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py)
+File: [src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](../src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py)
 
 Key semantics:
 

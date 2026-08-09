@@ -116,14 +116,18 @@ What we model (block-level only, no per-outcome access):
     - E_N = (Σ N_i) / K, E_s2_over_N = (Σ s_i^2 / N_i) / K, with K = number of reports
     - σ^2 = E_s2_over_N − μ^2 · E_N
     - μ2 = μ^2 + σ^2
-  - Use μ2 as the constant g^2 level for the block's closed-form Adam v update, apply bias correction and the intra-block damping k(N, β2), then take one step with the block sum s.
+  - Use μ2 as the constant g^2 level for the block's closed-form Adam v update, apply bias correction, then take one step with the block sum s. (There is no intra-block damping factor: the bias correction already removes the ramp a k(N, β2) term would correct, so the exact factor is 1.)
 - Micro (const-mean):
-  - N steps with constant numerator mean_signal = s/N and constant g^2 = μ2 (the same pre-block estimate). By construction, this path coincides with the macro.
+  - N steps with constant numerator mean_signal = s/N and constant g^2 = μ2 (the same pre-block estimate). This path is what the macro approximates; see the measured gap below.
 - Micro (real):
   - N steps with the realized per-outcome signal_j and g^2_j = (signal_j)^2 at each step.
 
 Guarantees and behavior:
-- Macro == Micro(const-mean) exactly, for any β1, β2, lr, and N.
+- Macro ~= Micro(const-mean) -- NOT exact. The endpoint Polyak blend
+  approximates the per-step blend, so a gap remains: measured ~2.7e-2 on a
+  |z| scale of 4.16, which is far above the 1e-12 tolerance the SPSA and
+  SF-SGD checks above are asserted at. Nothing in `validate_sf_adam.py`
+  guards this; it asserts only that the pair counters agree.
 - Using μ2 (mean of squares) aligns the normalization level with the real micro path, removing the large drift that would arise from using (mean_signal)^2.
 - A small residual difference remains vs the real micro due to within-block sequence and convexity effects (order of |signal| interacting with the EMA and 1/√·). This term is zero-mean and typically small; it shrinks as total pairs grow and is only mildly affected by shuffling.
 

@@ -441,7 +441,7 @@ The toy implementation includes diagonal (SPSA) Elo-drop calibration for `c_end`
 
 ---
 
-This repo's toy demo [src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py) models a developer who reasons about curvature in the **eigenbasis**.
+This repo's toy demo [src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py](../src/fishtest_spsa_lab/analysis/optimize_spsa_toy.py) models a developer who reasons about curvature in the **eigenbasis**.
 
 Let the true objective curvature in normalized coordinates be:
 

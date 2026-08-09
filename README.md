@@ -39,6 +39,10 @@ The project is organized into the following modules:
     *   `config.py`: Elo geometry and developer-model configuration.
 *   **`src/fishtest_spsa_lab/analysis/`**: Validation and research tools.
     *   `validate_*.py`: Scripts to mathematically verify update rules.
+    *   `noise_ball.py`: Stationary Elo loss from match-outcome noise.
+    *   `rademacher.py`: Monte Carlo checks of `sqrt(N)` scaling.
+    *   `spsa_gradient.py`: SPSA gradient estimator diagnostics.
+    *   `optimize_spsa_toy.py`: Toy optimizer with eigen-spectrum tooling.
     *   `common.py`: Shared testing utilities.
     *   `plot_spsa_schedule.py`: Plots the naive Fishtest SPSA internal schedules
         (c_k, a_k, r_k) over iterations for a given (num_pairs, A, alpha,
@@ -51,7 +55,7 @@ The project is organized into the following modules:
 ## Design Principles
 
 1.  **Modularity**: The `Optimizer` is decoupled from the `GameProvider`, allowing us to swap optimization algorithms without changing the simulation physics.
-2.  **Fishtest Parity**: The simulator is designed to replicate the exact mathematical behavior of the distributed Fishtest framework, including "Phi-space" scaling and asynchronous batching.
+2.  **Fishtest Protocol Parity**: The simulator reproduces Fishtest's *protocol* exactly -- dispatch snapshot, flip transport, batched arrival, clipping, and asynchronous out-of-order updates. It deliberately differs in *gain*: the update signal is halved and scaled by `1/sqrt(N)` (see [Algorithms.md](docs/Algorithms.md) ch. 4 and [Rademacher.md](docs/Rademacher.md)). That divergence is a proposal under test, not an accident.
 3.  **Verifiability**: The `analysis` module ensures that optimizations (like batching updates) do not deviate from the theoretical sequential updates.
 
 ## Usage
@@ -76,11 +80,34 @@ uv run validate-adam
 # Toy SPSA optimizer demo (pentamodel-driven noise)
 uv run optimize-spsa-toy
 
+# Stationary noise-ball estimate
+uv run noise-ball
+
+# Rademacher scaling and SPSA gradient Monte Carlo
+uv run rademacher
+uv run spsa-gradient
+
 # Plot naive SPSA internal schedules (c_k, a_k, r_k)
 uv run plot-spsa-schedule
+```
 
-# Tip: each command supports --help
-# uv run validate-penta --help
+Only `noise-ball`, `optimize-spsa-toy`, `validate-penta`, `rademacher` and
+`spsa-gradient` parse command-line arguments. The remaining entry points take
+no options and run to completion with built-in constants, so passing `--help`
+to them starts the run.
+
+### Development
+
+Dev tools are not installed by default (`[tool.uv] default-groups = []`), so
+every check needs `--group dev`:
+
+```bash
+uv sync --group dev
+uv run --group dev pytest -q
+uv run --group dev ruff check .
+uv run --group dev ruff format --check .
+uv run --group dev ty check
+uv run --group dev pre-commit run --all-files
 ```
 
 ### Configuration
