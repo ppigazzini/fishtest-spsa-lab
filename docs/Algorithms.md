@@ -301,9 +301,10 @@ These codebases provide public implementations of schedule-free optimizers used 
 ## Bibliography
 
 Entries [1]-[16] cover SPSA and the schedule-free / adaptive first-order line
-that the lab's optimizers are drawn from. Entry [17] covers zeroth-order
-optimization under comparison feedback, which is the formal setting Fishtest
-SPSA belongs to.
+that the lab's optimizers are drawn from. Entries [17]-[18] cover the
+zeroth-order oracle Fishtest actually presents: a two-point, symmetric,
+common-random-number estimate of a *function difference*, reported by a pool of
+distributed workers.
 
 [1] J. C. Spall. "Multivariate Stochastic Approximation Using a Simultaneous Perturbation Gradient Approximation." IEEE Transactions on Automatic Control, 37(3), 1992. https://www.jhuapl.edu/spsa/PDF-SPSA/Spall_TAC92.pdf
 
@@ -337,14 +338,40 @@ SPSA belongs to.
 
 [16] A. Meterez, P. A. Nair, D. Morwani, C. Pehlevan, S. Kakade. "Anytime Pretraining: Horizon-Free Learning-Rate Schedules with Weight Averaging." arXiv:2602.03702 (February 2026). https://arxiv.org/abs/2602.03702
 
-[17] T. El Bakkali, E. M. Chayti, O. Saadi. "Nonsmooth Optimization with Zeroth Order Comparison Feedback." arXiv:2602.05622 (February 2026). https://arxiv.org/abs/2602.05622
+[17] Y. Su, X. Tong, C. Sun. "Distributed Zeroth-Order Optimization with Rademacher Perturbations and Momentum Gradient Tracking." arXiv:2604.21368 (April 2026). https://arxiv.org/abs/2604.21368
 
-Entry [17] sits outside the schedule-free line and is the closest published
-match to what Fishtest SPSA actually is. Fishtest never observes an objective
-value: it observes the outcome of a match between two perturbed engines, drawn
-through a logistic link. That is optimization from *noisy pairwise comparisons*,
-not from noisy function values. The paper builds an unbiased estimator of
-directional differences from comparisons alone, via randomized smoothing with
-Russian-roulette truncation, and gives explicit comparison-complexity bounds for
-symmetric links including the logistic one -- which is the Elo link this
-repository uses throughout (see [Elo_function.md](Elo_function.md)).
+[18] H. Ye. "High-Probability Last-Iterate Guarantees for Two-Point Gaussian Zeroth-Order Stochastic Gradient Descent." arXiv:2606.20446 (June 2026). https://arxiv.org/abs/2606.20446
+
+### What kind of zeroth-order problem this is
+
+The block report is `result = wins - losses` accumulated over the whole task.
+Against the pentanomial model this lab uses, its expectation per pair is
+
+```text
+E[result] / N = (2 / C) * (Elo(theta + c*Delta) - Elo(theta - c*Delta)),
+C = 800 / ln(10)
+```
+
+with per-pair variance 0.5. The measured slope is 0.00575646 and it is flat to
+7.3e-05 relative across the +-2 Elo the probes actually span; the logistic link
+only starts to bend around 50-200 Elo, far outside the operating point. So the
+oracle is a *two-point noisy function-difference* oracle with a known scale and
+additive, near-homoscedastic noise -- the classical SPSA setting of [1], not
+optimization from pairwise comparisons. The comparison structure exists at the
+level of a single game, but averaging N games through a known, locally linear
+link recovers the magnitude directly, and the optimizer never sees a bare sign.
+
+[17] is the closest published match to the Fishtest topology: Rademacher
+perturbations, exactly two function queries per iteration, momentum, and a
+distributed pool. Read it for the momentum result -- the heterogeneity-induced
+bias floor falls as `(1 - beta)**2` -- and not for the topology, which is a
+consensus network with per-agent objectives. Fishtest has one shared parameter
+vector and one objective, so it has no consensus term.
+
+[18] matches the estimator itself: two symmetric perturbations evaluated on the
+same stochastic sample, which is exactly the reversed-colour pair sharing one
+book exit, and a guarantee on the *last* iterate rather than on an average. That
+is the quantity Fishtest exports, and the quantity
+[Noise_ball.md](Noise_ball.md) bounds. It uses Gaussian directions where this
+lab uses Rademacher; see [Rademacher.md](Rademacher.md) for why the discrete
+draw has the lower second moment.
