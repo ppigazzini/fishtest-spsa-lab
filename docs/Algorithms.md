@@ -300,6 +300,11 @@ These codebases provide public implementations of schedule-free optimizers used 
 
 ## Bibliography
 
+Entries [1]-[16] cover SPSA and the schedule-free / adaptive first-order line
+that the lab's optimizers are drawn from. Entry [17] covers zeroth-order
+optimization under comparison feedback, which is the formal setting Fishtest
+SPSA belongs to.
+
 [1] J. C. Spall. "Multivariate Stochastic Approximation Using a Simultaneous Perturbation Gradient Approximation." IEEE Transactions on Automatic Control, 37(3), 1992. https://www.jhuapl.edu/spsa/PDF-SPSA/Spall_TAC92.pdf
 
 [2] J. C. Spall. "Implementation of the Simultaneous Perturbation Algorithm for Stochastic Optimization." IEEE Transactions on Aerospace and Electronic Systems, 34(3), 1998. https://www.jhuapl.edu/SPSA/PDF-SPSA/Spall_Implementation_of_the_Simultaneous.PDF
@@ -331,3 +336,15 @@ These codebases provide public implementations of schedule-free optimizers used 
 [15] A. Defazio, K. Mishchenko, P. Raman, H.-J. M. Shi, L. Xiao. "Smoothing DiLoCo with Primal Averaging for Faster Training of LLMs." arXiv:2512.17131 (December 2025). https://arxiv.org/abs/2512.17131
 
 [16] A. Meterez, P. A. Nair, D. Morwani, C. Pehlevan, S. Kakade. "Anytime Pretraining: Horizon-Free Learning-Rate Schedules with Weight Averaging." arXiv:2602.03702 (February 2026). https://arxiv.org/abs/2602.03702
+
+[17] T. El Bakkali, E. M. Chayti, O. Saadi. "Nonsmooth Optimization with Zeroth Order Comparison Feedback." arXiv:2602.05622 (February 2026). https://arxiv.org/abs/2602.05622
+
+Entry [17] sits outside the schedule-free line and is the closest published
+match to what Fishtest SPSA actually is. Fishtest never observes an objective
+value: it observes the outcome of a match between two perturbed engines, drawn
+through a logistic link. That is optimization from *noisy pairwise comparisons*,
+not from noisy function values. The paper builds an unbiased estimator of
+directional differences from comparisons alone, via randomized smoothing with
+Russian-roulette truncation, and gives explicit comparison-complexity bounds for
+symmetric links including the logistic one -- which is the Elo link this
+repository uses throughout (see [Elo_function.md](Elo_function.md)).
