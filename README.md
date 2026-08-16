@@ -8,7 +8,7 @@ The simulator mirrors the logic of the Fishtest server but runs locally with a s
 
 ### Key Features
 
-*   **Realistic Noise Model**: Uses `PentaModel` to generate game outcomes (Win/Draw/Loss) based on Elo differences, simulating the variance found in real engine testing.
+*   **Pentanomial Noise Model**: Uses `PentaModel` to generate game-pair outcomes based on Elo differences. Note the modelling limits documented in [Simulator.md](docs/Simulator.md) section 1 before quoting any noise figure from it.
 *   **Multiple Optimizers**:
     *   **Classic SPSA**: The standard algorithm currently used in Fishtest with decaying learning rates.
     *   **Schedule-Free SGD**: An adaptation of Schedule-Free SGD for SPSA, eliminating the need for complex decay schedules.
@@ -117,11 +117,18 @@ Currently, simulation parameters are defined directly in the code.
 *   **Simulator**: Edit `src/fishtest_spsa_lab/simulator/main.py` to change `num_pairs`, `batch_size`, or `num_workers`.
 *   **Validation**: Edit the `main()` function in the respective `validate_*.py` scripts in `src/fishtest_spsa_lab/analysis/`.
 
-These scripts will:
-1.  Initialize the simulation with the specific optimizer.
-2.  Run the simulation for a specified number of game pairs.
-3.  Log progress and Elo estimates to the console.
-4.  Generate plots showing the trajectory of parameters over time.
+What they do:
+
+*   `run-simulation` runs every registered optimizer over a shared set of seeds
+    and prints one table: mean final Elo, a 95% interval, and a paired difference
+    against the `spsa` baseline. It draws no plots.
+*   The `validate-*` scripts print a result table -- each invariant, its measured
+    value, the tolerance it is asserted at, and PASS or FAIL -- and **exit
+    non-zero if any check fails**. Set `SPSA_LAB_NO_PLOT=1` to suppress figures;
+    they are also suppressed automatically under a non-interactive matplotlib
+    backend. `pytest` runs all seven.
+*   The remaining tools (`noise-ball`, `optimize-spsa-toy`, `rademacher`,
+    `spsa-gradient`, `plot-spsa-schedule`) are exploratory and open figures.
 
 ## Requirements
 

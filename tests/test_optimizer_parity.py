@@ -32,6 +32,7 @@ from fishtest_spsa_lab.analysis import validate_spsa as vs
 from fishtest_spsa_lab.simulator.config import ParamGroup, SPSAConfig
 from fishtest_spsa_lab.simulator.optimizer import (
     AdamBlock,
+    Optimizer,
     SFAdamBlock,
     SFSGDBlock,
     SPSABlock,
@@ -80,14 +81,14 @@ def _config(**overrides: object) -> SPSAConfig:
     )
 
 
-def _drive_simulator(optimizer: object) -> list[float]:
+def _drive_simulator(optimizer: Optimizer) -> list[float]:
     """Run the scripted reports through a simulator optimizer, one block each."""
     flip = np.ones(1, dtype=float)
-    thetas: list[float] = [float(optimizer.get_params()[0])]  # ty: ignore
+    thetas: list[float] = [float(optimizer.get_params()[0])]
     iter_local = 1
     for n, s in REPORTS:
-        c_k = optimizer.get_perturbation_scale(iter_local)  # ty: ignore
-        optimizer.step(iter_local, s, flip, c_k, n)  # ty: ignore
+        c_k = optimizer.get_perturbation_scale(iter_local)
+        optimizer.step(iter_local, s, flip, c_k, n)
         thetas.append(float(optimizer.get_params()[0]))
         iter_local += n
     return thetas

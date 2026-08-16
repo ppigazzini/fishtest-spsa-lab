@@ -35,22 +35,22 @@ uv run --group dev ty check
 uv run --group dev pre-commit run --all-files
 ```
 
-The lab's tools are console scripts in `[project.scripts]`. **Only `noise-ball`,
-`optimize-spsa-toy` and `validate-penta` parse arguments.** The other eight
-ignore `--help` and run the full simulation instead, opening plot windows:
+The lab's tools are the thirteen console scripts in `[project.scripts]`. Five
+parse arguments -- `noise-ball`, `optimize-spsa-toy`, `validate-penta`,
+`rademacher`, `spsa-gradient`. The other eight ignore `--help` and run instead.
 
 ```sh
-uv run run-simulation        # 12-optimizer sweep -- unseeded, see the traps
+uv run run-simulation        # 12-optimizer x 8-seed sweep, paired table, ~45 s
 uv run noise-ball            # the stationary Elo floor
 uv run validate-spsa         # macro-vs-micro equivalence, classic SPSA
 uv run optimize-spsa-toy     # toy optimizer and spectrum tools
 uv run plot-spsa-schedule    # c_k, a_k, r_k
 ```
 
-`validate-spsa-u2`, `validate-sf-sgd-block`, `validate-sf-adam-block`,
-`validate-adam`, `validate-variance`, `validate-penta` complete the set.
-`rademacher.py` and `spsa_gradient.py` have a `main()` but no console script
-yet; run them with `python -m`.
+The seven `validate-*` entry points print a result table and **return a real
+exit code**. `SPSA_LAB_NO_PLOT=1` suppresses figures, as does any
+non-interactive matplotlib backend, so they are usable as gates; `pytest` runs
+all seven. `run-simulation` draws no plots -- the rest do.
 
 ## The anchors
 
@@ -97,11 +97,11 @@ experiment means anything.
 
 | the change claims | gate |
 |---|---|
-| "the update rule is unchanged" | the matching `validate-*` entry point, not `pytest` |
+| "the update rule is unchanged" | the matching `validate-*` entry point AND `tests/test_optimizer_parity.py`, which is the only thing comparing the shipped optimizer to its clean-room twin |
 | "this optimizer is better" | multiple seeds, shared worker pool, paired difference, stated CI |
 | "this is the stationary loss" | `noise-ball`, cross-checked against the closed form above |
 | "this matches Fishtest" | drive `__fishtest/server/fishtest/spsa_workflow.py` over the same scripted sequence |
-| "this is a pure refactor" | every `validate-*` produces byte-identical output |
+| "this is a pure refactor" | every `validate-*` produces byte-identical **stdout** and exits 0 |
 
 **Check the gate's EXIT CODE, never a piped fragment.** `cmd | tail -1` reads 0
 from `tail` while the gate is red. A check that was skipped proves nothing;
@@ -124,7 +124,9 @@ never report it as a pass.
 | **Pre-commit cannot fail on lint.** `ruff-check` runs with `--fix --exit-zero`. Green hooks are not evidence that lint is clean. There is no CI. | run the checks yourself |
 | **`analysis/common.py` imports from `analysis/validate_variance.py`** -- the shared module depends on a leaf script. Do not "fix" it casually; it is load-bearing for five validators. | tracked as M6 |
 | **`mu2_hat`/`update_mu2_stats` exist three times** (`analysis/common.py`, `simulator/optimizer.py::SFAdamBlock`, `validate_sf_adam.py`), identical down to the `min(max(mu2, 1e-12), 4.0)` clamp. Change one and the others silently diverge. | one edit is never enough |
-| **`tests/` is 3.7% of source and shallow.** `test_single_step_all_optimizers` asserts only that the array shape did not change, so it passes on an optimizer that never moves. `runner.py` (714 lines) has zero coverage. A green suite is weak evidence. | strengthen before trusting |
+| **The `validate-*` scripts could not fail.** Until 2026-08-16 five of seven printed nothing at all and none could return a non-zero exit, so "byte-identical output" compared empty against empty. Fixed; the lesson is that a gate is worth nothing until it has been *observed* to fail, so change the math on purpose and watch it go red. | `analysis/gate.py` |
+| **A gate can drift from the code it gates.** `analysis/validate_*.py` reimplements each rule independently, so editing `simulator/optimizer.py` alone cannot fail it. Two divergences shipped that way in one commit. `tests/test_optimizer_parity.py` now compares the two directly -- run it after touching either side. | one edit is never enough |
+| **The Adam family has no per-parameter adaptivity.** `grad = scalar * flip` with `flip` in `{-1,+1}` makes `grad**2` coordinate-identical, so `v.max() - v.min()` is exactly 0 for `adam`, `adam-block`, `sf-adam`, `sf-adam-block` and `ademamix`. All five are normalized-momentum SGD. Never attribute a result to adaptivity. | `docs/Simulator.md` 2.8 |
 | **An optimizer must never read ground truth.** `w_true`, `theta_peak` and `k_elo` are the simulator's, not the tuner's. `w_dev` and `c_dev` are the developer's belief. Leaking the first set makes every result meaningless and nothing will complain. | `simulator/config.py` |
 | **Verify every citation against the source.** ID, full author list, year, and that the live page still shows the cited title. Five entries in `docs/Algorithms.md` were wrong at once: Defazio et al. and Ahn/Magakyan/Cutkosky both carried the same fabricated five-author list; two more had wrong author order and one a wrong title; Pun/Buchholz/Gower's link had come to resolve to a different paper. A prior prompt also supplied three wrong IDs, and a whole entry was once admitted on the strength of its title matching the problem rather than the oracle. Cite by name here, not by number -- the list is chronological and renumbers on insert. | never cite from memory |
 | **The "ASCII-only" rule is dead as written.** `__DEV/DOCS-BEST-PRACTICES.md:26` states it; all nine `docs/` pages break it, using theta/phi/sigma/Delta and the usual math operators. Prose and this file stay ASCII; mathematical notation in `docs/` does not. The standard needs amending, not the pages. | unresolved |

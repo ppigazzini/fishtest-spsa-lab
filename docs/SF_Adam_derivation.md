@@ -17,7 +17,7 @@ Space map at a glance:
 - θ-space: z_prev → z_new, x_prev → x_new, theta; mapping via `θ-step = c * (φ-step)`.
 - Batch-size invariance: step with the total `result`; the second moment `v` uses a global μ2 estimator rather than per-parameter `(result/N * flip)**2`.
 - Surrogate x: Polyak (arithmetic) mean of z via mass blend `a_k`; no triangular averaging for Adam (see "Why no triangular term here").
-- Micro-batch damping k(N, β2): rescales the macro step to keep N-invariance under EMA smoothing; it is the geometric-mean analogue of the SGD triangular factor (see the k(N, β2) subsection and the α(√β2, N) note).
+- Micro-batch damping: none. A geometric k(N, β2) factor was once proposed here as the analogue of the SGD triangular factor; it is not needed and is not implemented (see "Why there is no micro-batch damping factor").
 
 ## 1. Requirements (authoritative)
 
@@ -75,13 +75,10 @@ Space map at a glance:
 - Directional fast iterate step (φ → θ mapping; no triangular surrogate):
   ```
   step_phi = (sf_lr * result * flip) / denom   # φ-space step (batch-size invariant numerator)
-  # Optional micro-batch damping (enabled in code when N>1 and 0<beta2<1):
-  # k(N, beta2) = (1 - beta2**(N/2)) / (N * (1 - sqrt(beta2)))  in (0, 1]
-  # Near beta2 -> 1: k ≈ 1 - ((N - 1)/4) * (1 - beta2)
-  step_phi *= k(N, beta2)   # if applicable; clipped to (0, 1] in code
   z_new = z_prev + step_phi * c                 # map φ-step to θ via c
   ```
-  The factor `k(N, beta2)` is bounded to `(0, 1]` in code for safety; if conditions don't hold, `k = 1`.
+  There is no damping factor on this step; the exact value is 1 for all N and
+  β2 (see "Why there is no micro-batch damping factor").
 - Polyak surrogate averaging and blend (if `beta1 > 0`):
   ```
   x_new = (1 - a_k) * x_prev + a_k * z_new
@@ -146,34 +143,34 @@ denom = sqrt(v_hat) + sf_eps
 ```
 - This aggregates the N identical micro-gradients in one shot and applies bias correction.
 
-Optional micro-batch damping k(N, β2): what it fixes and where it comes from
-- Why we need it: in Adam, the denominator (RMS) grows during the N identical micro-steps because `v` is an EMA. If we compress those N micro-steps into one macro update and use only the end-of-block denominator `denom_end`, we apply the largest denominator to the whole block. Earlier micro-steps would have used smaller denominators, so the true sequential sum is larger than the one-shot macro step. As N grows, the mismatch grows; the macro step shrinks with N.
-- Back-of-the-envelope model that matches practice:
-  - With constant per-pair magnitude `|g_phi_mean|` inside the block, denominators across micro-steps scale roughly geometrically by `sqrt(beta2)`.
-  - Let `d_j` be the denominator at micro-step j (1..N) and `d_end` the denominator at the end of the block. Approximate:
-    - `d_j ≈ d_end * beta2**((N - j)/2)`   # earlier steps see smaller denom
-  - Sequential micro-steps sum:
-    - `S_seq ≈ Σ_{j=1..N} (sf_lr * g_phi_mean) / d_j`
-    - `= (sf_lr * g_phi_mean / d_end) * Σ_{j=1..N} beta2**((j - N)/2)`
-    - `= (sf_lr * g_phi_mean / d_end) * Σ_{i=0..N-1} beta2**(i/2)`
-  - Compressed macro step uses numerator `sf_lr * (N * g_phi_mean)` and denominator `d_end`:
-    - `S_macro = (sf_lr * N * g_phi_mean) / d_end`
-  - Match the two by multiplying the macro step with the average geometric factor:
-    - `k(N, beta2) = (1/N) * Σ_{i=0..N-1} beta2**(i/2) = (1 - beta2**(N/2)) / (N * (1 - sqrt(beta2)))`
-- How it plugs into the step:
+Why there is no micro-batch damping factor
+- The concern is real: in Adam the denominator grows across the N identical
+  micro-steps of a block because `v` is an EMA. Compressing those N steps into
+  one macro update with only the end-of-block denominator `d_end` would apply the
+  largest denominator to the whole block, and the mismatch would grow with N.
+- Bias correction already removes it. With `v_hat = v / (1 - beta2**t)` and a
+  constant per-pair second-moment level `g2`, the in-block recursion
+  `v_j = beta2**j * v_0 + (1 - beta2**j) * g2` starting from a `v_0` on the
+  bias-corrected trajectory `v_0 = g2 * (1 - beta2**t0)` gives
   ```
-  step_phi = ((sf_lr * result * flip) / denom) * k(N, beta2)
-  z_new = z_prev + step_phi * c
+  v_j     = g2 * (1 - beta2**(t0 + j))
+  v_hat_j = v_j / (1 - beta2**(t0 + j)) = g2      # constant in j
   ```
-- Guards and numerics:
-  - Apply only if `N > 1` and `0 < beta2 < 1`; otherwise use `k = 1` (no damping).
-  - Clip to `(0, 1]` in code for safety (geometric mean ≤ 1).
-  - Near `beta2 -> 1`, use the numerically stable series:
-    - `k(N, beta2) ≈ 1 - ((N - 1)/4) * (1 - beta2)`
-- Sanity checks and intuition:
-  - `N = 1` => `k = 1` (no change); `beta2 = 0` => `k = 1` (no smoothing); `beta2 -> 1` => `k -> 1` with a small linear correction.
-  - Example: `beta2 = 0.99`, `N = 16` => `k ≈ (1 - 0.99**8) / (16 * (1 - 0.995)) ≈ 0.97` (mild reduction).
-  - Takeaway: `k` compensates for the fact that "one big step with the final denom" underestimates the sum of N smaller steps that would have used a ladder of smaller denoms along the way.
+  so `d_j = d_end` at every micro-step and the exact correction factor is
+  `k = 1`, for all N and all β2. The ladder the geometric factor was invented to
+  compensate does not exist once bias correction is applied.
+- A geometric factor `k(N, beta2) = (1 - beta2**(N/2)) / (N * (1 - sqrt(beta2)))`
+  was previously specified here and implemented. It was wrong twice over. The
+  re-indexing that produced it dropped a minus sign, so it landed in `(0, 1]`
+  where this page's own reasoning calls for `>= 1`; and it was then clipped to
+  `(0, 1]` in code, which made the correct direction unreachable. Measured
+  under-step against the exact factor of 1: 2.0x at β2 = 0.9, N = 32; **6.6x** at
+  β2 = 0.9, N = 128; 1.03x at β2 = 0.999, N = 128.
+- What remains is a genuinely different, smaller residual: `g2` is not constant
+  across blocks, because the online μ2 estimate moves as reports arrive. That
+  breaks the cancellation above by a bounded amount rather than a systematic one.
+  Measured z gap 9.43e-03 on a |z| scale of 4.16 at β2 = 0.999, and 1.69e-02 at
+  β2 = 0.9. `validate-sf-adam-block` asserts those bounds.
 
 Polyak filtering: x is the running arithmetic mean of z
 - Think "keep the arithmetic mean of the z's you visit," with constant per-micro-step weight `weight = sf_lr`.
@@ -229,7 +226,7 @@ Key limits and intuition
 Why we approximate with z_new (and not α(q, N))
 - Accuracy vs complexity: The exact α(q, N) depends on an effective ratio q for the denominators across the block. In practice the denominator also includes bias correction and sf_eps, and g varies slightly -- so q is only approximate. Using α(q, N) adds complexity for a second-order correction.
 - Magnitude of the effect: The surrogate blend uses a_k = report_weight / sf_weight_sum, which decays over the run. The difference between z_avg and z_new impacts x_new by a factor a_k * (1 − α(q, N)) * |Δ|, typically small once sf_weight_sum grows.
-- Consistency with step damping: We already restore N-invariance of the macro step via k(N, β2) on the numerator. Given that, placing the surrogate at z_new (α = 1) is a simple, end-heavy approximation that aligns with the fact that under smoothing more of the change accrues toward the end of the block.
+- Consistency with the step: the macro step needs no damping (bias correction gives an exact factor of 1), so placing the surrogate at z_new (α = 1) is a simple, end-heavy approximation that aligns with the fact that under smoothing more of the change accrues toward the end of the block.
 
 Optional: exact surrogate if you want it
 - If we ever choose to match the micro-step average exactly under the geometric model, replace the report-level surrogate contribution
@@ -239,7 +236,7 @@ Optional: exact surrogate if you want it
   # exact (geometric):
   num_add = report_weight * (z_prev + α(q, N) * Δ)
   ```
-  with `q = sqrt(beta2)` and `Δ = z_new - z_prev` (after applying k(N, β2) to the step).
+  with `q = sqrt(beta2)` and `Δ = z_new - z_prev`.
 - We've kept the endpoint form to stay simple, fast, and robust; the empirical difference is negligible in our settings (β2 close to 1, moderate N).
 
 ## 5. History and telemetry (as implemented)

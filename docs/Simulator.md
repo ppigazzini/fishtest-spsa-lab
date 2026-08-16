@@ -165,8 +165,8 @@ In code, the `SPSAConfig.optimizer` field accepts:
 *   `"spsa-cwd"` -- SPSA + centered cautious weight decay (CWD) (see below).
 *   `"sf-sgd"` -- naive Schedule-Free SGD macro (no block compensation in the Polyak surrogate).
 *   `"sf-sgd-block"` -- Schedule-Free SGD using a block-corrected macro update (closed-form triangular weighting for `x`).
-*   `"sf-adam"` -- naive Schedule-Free Adam macro (per-block EMA of `g_φ_mean^2`, no `k(N, β2)` intra-block damping).
-*   `"sf-adam-block"` -- Schedule-Free Adam using a μ2-based block-corrected macro update (closed-form `v`/`k(N, β2)` path).
+*   `"sf-adam"` -- naive Schedule-Free Adam macro (per-block EMA of `g_φ_mean^2`).
+*   `"sf-adam-block"` -- Schedule-Free Adam using a μ2-based block-corrected macro update (closed-form `v`, bias-corrected).
 *   `"adam"` -- textbook Adam macro using micro const-mean steps inside each block.
 *   `"adam-block"` -- block-Adam macro using closed-form EMAs over block-mean SPSA signals.
 *   `"ademamix"` -- AdEMAMix optimizer driven by SPSA-style signals.
@@ -236,9 +236,10 @@ Combines Schedule-Free averaging with Adam's adaptive moments.
     *   Takes a single block step `step_phi = (lr * net_wins * flip) / denom` (no intra-block damping), so effective step size grows roughly linearly with `N` and depends strongly on the batch-size distribution.
 *   **Block-corrected macro (`sf-adam-block`)**:
     *   Maintains a global scalar mu2 estimate from report-level aggregates `(N_i, S_i, S_i^2 / N_i)` and updates `v` in closed form over each block using that mu2, with bias correction based on the total number of processed pairs.
-    *   Scales the block step by `k(N, beta2)` so one macro step matches N micro const-mean steps in expectation, making it much more stable across varying `N` and closely aligned with the macro path analyzed in the schedule-free Adam notes.
+    *   Takes the block step with **no intra-block damping factor**. Bias correction already makes the in-block denominator constant, so the exact correction is `1` for all `N` and `beta2`; see `docs/SF_Adam_derivation.md`, "Why there is no micro-batch damping factor". A geometric `k(N, beta2)` once sat here with a dropped minus sign and a clip to `(0, 1]`, under-stepping 6.6x at `beta2 = 0.9, N = 128`.
+    *   The macro path is therefore *bounded*, not exact, against N micro const-mean steps: the online μ2 level moves between blocks, which breaks the cancellation by a bounded amount. Measured z gap 9.43e-03 on a |z| scale of 4.16; `validate-sf-adam-block` asserts it.
 
-**Semantic gap**: `SFAdam` tracks a per-parameter `v` vector (EMA of `g_phi_mean^2`); `SFAdamBlock` replaces this with a single global scalar mu2 derived from report-level Welford aggregates. The two second-moment estimates converge for large K but can diverge early in a run, especially when batch sizes vary widely.
+**Semantic gap**: `SFAdam` stores `v` as a per-parameter array (EMA of `g_phi_mean^2`); `SFAdamBlock` replaces it with a single global scalar mu2 derived from report-level Welford aggregates. The two second-moment estimates converge for large K but can diverge early in a run, especially when batch sizes vary widely. Note that `SFAdam`'s array is *uniform across coordinates* -- see 2.6.
 
 ### 2.4. Classic Adam (`Adam` and `AdamBlock`)
 
@@ -280,10 +281,18 @@ Two macros are provided:
         *   Approximates the total θ change by freezing the denominator at the
             end-of-block second moment (`sqrt(v_N) + eps`) and using a single
             block step `Δtheta ≈ - lr * sum_m / (sqrt(v_N) + eps)`.
+        *   Bias-corrects both moments at the end-of-block step index, dividing
+            by `1 - beta1**t` and `1 - beta2**t` with `t` advanced by `N`.
     *   This makes `adam-block` a fast, batch-aware approximation to the
         micro const-mean Adam path. It is **not** mathematically identical to
-        running N textbook Adam steps; the approximation error comes entirely
-        from freezing the denominator over the block.
+        running N textbook Adam steps; the residual comes from freezing the
+        denominator over the block.
+    *   The error was previously attributed *entirely* to that frozen
+        denominator. That was wrong: the dominant term was the missing bias
+        correction. Measured against N textbook micro-steps, the uncorrected
+        closed form overshot the first block by 4.29x and ran 1.74 away from the
+        micro path on a theta scale of 3.14; restoring the two divisions alone
+        brings the first block to 0.659x and the trajectory gap to 8.12e-02.
 
 Both `adam` and `adam-block` share their own hyperparameters (`adam_*`) in
 `SPSAConfig`. All optimizers use the developer-level perturbation vector
@@ -315,6 +324,98 @@ Implementation summary:
 
 Hyperparameters live under `SPSAConfig.ademamix` (e.g. `lr`, `beta1`, `beta2`,
 `beta3`, `alpha`, `eps`, `eps_root`).
+
+### 2.8. The Adam family has no per-parameter adaptivity here
+
+This is a structural property of the SPSA signal, not a defect in any of the
+implementations, and it changes what five registry entries mean.
+
+The gradient proxy is `grad = scalar * flip` with `flip` drawn from `{-1, +1}`
+per coordinate. Therefore
+
+```text
+grad[i]**2 = scalar**2 * flip[i]**2 = scalar**2      for every i
+```
+
+identically, because `flip[i]**2 == 1`. The second moment `v` is an EMA of that
+quantity, so **`v` is the same number in every coordinate**, exactly, at every
+step. Measured after 3,600 pairs at batch 36, `v.max() - v.min()`:
+
+| optimizer | spread |
+|---|---|
+| `adam` | 0.000e+00 |
+| `adam-block` | 0.000e+00 |
+| `sf-adam` | 0.000e+00 |
+| `sf-adam-block` | 0.000e+00 |
+| `ademamix` | 0.000e+00 |
+
+Zero, not small. The defining feature of Adam -- a per-coordinate step size that
+adapts to per-coordinate gradient scale -- cannot express itself against a
+Rademacher direction proxy. All five reduce to **normalized-momentum SGD with a
+single global scalar step size**, and differ from `sf-sgd` only in how they
+smooth that scalar.
+
+Consequences for reading results:
+
+*   Do not attribute a win by an Adam-family arm to per-parameter adaptivity.
+    There is none. Any difference is in the scalar normalization or the momentum.
+*   `sf-adam-block` making `v` an explicit global scalar is therefore not an
+    approximation of the array form; for this signal the two are the same object.
+*   Giving the family real adaptivity needs a per-coordinate signal, for example
+    accumulating `net_wins * flip` over a window so that coordinates with
+    consistent sign separate from coordinates that are being averaged out. That
+    is an open experiment, not current behaviour.
+
+`tests/test_adam_family.py` asserts `v.max() == v.min()` so this fact is pinned
+rather than rediscovered by each audit.
+
+### 2.6. SPSA with cautious weight decay (`"spsa-cwd"`)
+
+Classic SPSA plus a decay term pulling `theta` back toward `theta_start`, applied
+only on coordinates where it reinforces the current update direction.
+
+*   **Rule**: with `u_t = -step_vec` and `deviation = theta - theta_start`, decay
+    is applied where `u_t * deviation >= 0`, at rate `lambda * a_k / c_k**2`.
+*   **Default `lambda_ = 0.0`, i.e. disabled**, and that is the tuned value. The
+    decay centre is `theta_start`, which sits away from the optimum, so the term
+    is a constant pull in the wrong direction. Measured monotone over 6 seeds:
+    `0.0 -> -0.1685`, `0.2 -> -0.1861`, `5.0 -> -0.4104`. It is kept as a
+    mechanism to study, not as a recommended setting.
+*   Hyperparameters live under `SPSAConfig.spsa_cwd`.
+
+### 2.7. Pentanomial-scaled SPSA (`"spsa-penta"`) and accelerated SPSA (`"accelerated-spsa"`)
+
+**`"spsa-penta"`** scales the SPSA gain by a factor derived from the cumulative
+pentanomial distribution. It tracks asymmetry `A = |p_WW - p_LL| + 0.5*|p_WD -
+p_DL|` and mean outcome `mu`, forms `r = |A| + mu_weight*|mu|`, and interpolates
+the gain multiplier linearly between `min_scale` at `r <= r_small` and
+`max_scale` at `r >= r_large`. Hyperparameters live under
+`SPSAConfig.spsa_penta`.
+
+**Read the caveat before using it.** `r` is built from absolute values of noisy
+frequency differences, so it is a positively-biased statistic: at a true Elo
+difference of zero its expectation is not zero but falls as `1/sqrt(n)`. The
+curves it produces are largely that decay, not a measurement of asymmetry. The
+`r_small`/`r_large` window has been recalibrated to the range the cumulative
+statistic actually attains (p10 0.0008, p90 0.0046); the previous `r_large` of
+0.02 was about 4x above anything observed, which pinned the gain at `min_scale`
+for 38% of a run. Even calibrated, `spsa-penta` measured worse than plain
+`spsa` over 12 seeds (-0.2846 vs -0.1685, paired `+0.11653 +- 0.03633`), and a
+constant 1.5x gain beat both.
+
+**`"accelerated-spsa"`** applies the accelerated-SGD framework to the SPSA
+gradient: a momentum buffer `m_k = beta_a * m_{k-1} + g_k`, with the step
+`eta_a * m_k + alpha_a * g_k` where `eta_a = eta_scale * a_k` and
+`alpha_a = alpha_scale * a_k`. Hyperparameters live under
+`SPSAConfig.accelerated_spsa`.
+
+Two things to know. Under `beta_mode = "constant"`, the steady-state gain is
+`(eta_scale/(1 - beta) + alpha_scale) * a_k`, so any pair summing to 1 makes this
+entry *exactly* plain SPSA; the previous defaults 0.09/0.10 summed to 1.000000
+and the two arms measured -0.1671 vs -0.1685 over 8 paired seeds. The default
+`beta_mode = "inv_time"` sets `beta_a = 1 - beta_k/k`, which makes the momentum
+window grow with `k`; `eta_scale` is rescaled by `(1 - beta_a)/(1 - beta)` to keep
+the effective rate comparable.
 
 ## 3. Simulation Runner
 
