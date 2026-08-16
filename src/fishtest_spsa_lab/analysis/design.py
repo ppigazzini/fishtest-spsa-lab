@@ -42,13 +42,20 @@ import math
 
 __all__ = [
     "ELO_C",
+    "FOLKLORE_C_DIVISOR",
     "chi2_ppf",
+    "curvature_from_elo",
     "design_r",
+    "folklore_c",
     "games_per_axis",
+    "gauss_newton_c",
     "main",
     "noise_ball_elo",
     "quantile_elo",
 ]
+
+#: The folklore rule for a Fishtest submission row: c_end = range / 20.
+FOLKLORE_C_DIVISOR: float = 20.0
 
 #: 800 / ln(10).
 ELO_C: float = 800.0 / math.log(10.0)
@@ -162,6 +169,49 @@ def games_per_axis(r: float, c_j: float, eps_j: float) -> float:
     return ELO_C / (8.0 * r * c_j * c_j * eps_j)
 
 
+def curvature_from_elo(elo_over_range: float, param_range: float) -> float:
+    """Elo curvature ``eps_j`` for a parameter worth ``E`` Elo over its range.
+
+    With ``Elo(theta) = peak - (eps/2) * (theta - theta*)**2`` and the optimum at
+    the centre of the range, the drop at the range edge is ``eps * R**2 / 8``.
+    Setting that equal to ``E`` gives ``eps = 8E / R**2``.
+    """
+    if param_range <= 0.0:
+        return math.nan
+    return 8.0 * elo_over_range / (param_range * param_range)
+
+
+def folklore_c(param_range: float) -> float:
+    """The `c_end = range / 20` rule Fishtest submissions use by convention."""
+    return param_range / FOLKLORE_C_DIVISOR
+
+
+def gauss_newton_c(
+    param_range: float,
+    elo_over_range: float,
+    scale: float = 1.0,
+) -> float:
+    """Per-axis probe satisfying the Gauss-Newton condition ``c_j**2 * eps_j = const``.
+
+    The Remark in ``spsa_simul``'s ``theoretical_basis.tex`` states that when
+    ``E(c c^T) Hess(e) = mu * I``, the average SPSA update is proportional to
+    ``Hess^-1 grad`` -- the Newton direction. Diagonally that is
+    ``c_j**2 * eps_j = const``, i.e. ``c_j`` proportional to
+    ``1 / sqrt(curvature)``. Substituting ``eps_j = 8E_j / R_j**2`` gives
+
+    ```text
+    c_j  proportional to  R_j / sqrt(E_j)
+    ```
+
+    so the developer needs one extra number per row -- a rough Elo estimate --
+    and nothing else. ``scale`` sets the overall aggressiveness, which the
+    condition leaves free.
+    """
+    if param_range <= 0.0 or elo_over_range <= 0.0:
+        return math.nan
+    return scale * param_range / math.sqrt(elo_over_range)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -203,7 +253,81 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=[1, 2, 4, 8, 12, 14, 22, 32, 64],
         help="parameter counts to tabulate",
     )
+    parser.add_argument(
+        "--ranges",
+        type=float,
+        nargs="+",
+        default=None,
+        help="per-parameter ranges, for the c_end comparison",
+    )
+    parser.add_argument(
+        "--elos",
+        type=float,
+        nargs="+",
+        default=None,
+        help=(
+            "per-parameter Elo estimates over those ranges. Given with --ranges, "
+            "compares c_end = range/20 against the Gauss-Newton rule."
+        ),
+    )
     return parser.parse_args(argv)
+
+
+def _report_c_end(ranges: list[float], elos: list[float], r_eff: float) -> None:
+    """Compare the folklore c_end rule against the Gauss-Newton one."""
+    eps = [curvature_from_elo(e, rng) for e, rng in zip(elos, ranges, strict=True)]
+    c_folk = [folklore_c(rng) for rng in ranges]
+
+    # The condition fixes the shape and leaves the scale free; match the mean of
+    # the folklore rule so the two are compared on aggressiveness, not on an
+    # arbitrary constant.
+    raw = [gauss_newton_c(rng, e) for rng, e in zip(ranges, elos, strict=True)]
+    scale = sum(c_folk) / sum(raw)
+    c_gn = [x * scale for x in raw]
+
+    lam_folk = [games_per_axis(r_eff, c, e) for c, e in zip(c_folk, eps, strict=True)]
+    lam_gn = [games_per_axis(r_eff, c, e) for c, e in zip(c_gn, eps, strict=True)]
+
+    print()  # noqa: T201
+    print(  # noqa: T201
+        f"Per-axis c_end, at r = {r_eff:.3e}. "
+        f"E_j is the Elo the parameter is worth over its range.",
+    )
+    header = (
+        f"{'range':>10}{'E_j':>8}{'eps_j':>12}{'c=R/20':>10}{'c=GN':>10}"
+        f"{'games @ R/20':>15}{'games @ GN':>15}"
+    )
+    print(header)  # noqa: T201
+    print("-" * len(header))  # noqa: T201
+    for rng, e, ep, cf, cg, lf, lg in zip(
+        ranges, elos, eps, c_folk, c_gn, lam_folk, lam_gn, strict=True
+    ):
+        print(  # noqa: T201
+            f"{rng:10.1f}{e:8.2f}{ep:12.3e}{cf:10.2f}{cg:10.2f}{lf:15,.0f}{lg:15,.0f}",
+        )
+
+    spread_folk = max(lam_folk) / min(lam_folk)
+    print()  # noqa: T201
+    print(  # noqa: T201
+        f"c_end = range/20 : slowest axis {max(lam_folk):,.0f} games, "
+        f"spread across axes {spread_folk:.1f}x",
+    )
+    print(  # noqa: T201
+        f"Gauss-Newton     : slowest axis {max(lam_gn):,.0f} games, "
+        f"spread across axes {max(lam_gn) / min(lam_gn):.1f}x",
+    )
+    print(  # noqa: T201
+        f"The run is set by its slowest axis, so this is a "
+        f"{max(lam_folk) / max(lam_gn):.2f}x saving.",
+    )
+    print()  # noqa: T201
+    print(  # noqa: T201
+        "Under c_end = range/20, c_j**2 * eps_j = E_j / 50: the RANGE CANCELS, "
+        "and games-to-converge is inversely proportional to the Elo the "
+        "parameter is worth. The slowest axis is the least valuable parameter, "
+        "and the spread is exactly max(E)/min(E). The folklore rule is "
+        "self-consistent only if every parameter is worth the same Elo.",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -248,6 +372,13 @@ def main(argv: list[str] | None = None) -> int:
         "defaulting to a constant. r scales as 1/chi2(confidence, n), i.e. "
         "roughly 1/n.",
     )
+
+    if args.ranges and args.elos:
+        if len(args.ranges) != len(args.elos):
+            print("--ranges and --elos must have the same length")  # noqa: T201
+            return 1
+        r_eff = design_r(args.precision, args.confidence, len(args.ranges), args.sigma2)
+        _report_c_end(args.ranges, args.elos, r_eff)
     return 0
 
 

@@ -8,8 +8,11 @@ import pytest
 
 from fishtest_spsa_lab.analysis.design import (
     chi2_ppf,
+    curvature_from_elo,
     design_r,
+    folklore_c,
     games_per_axis,
+    gauss_newton_c,
     main,
     noise_ball_elo,
     quantile_elo,
@@ -141,3 +144,74 @@ def test_the_entry_point_runs(capsys: pytest.CaptureFixture) -> None:
     out = capsys.readouterr().out
     assert "n_active" in out
     assert "design r" in out
+
+
+def test_the_folklore_rule_makes_the_range_cancel() -> None:
+    """The result that makes `c_end = range/20` indefensible for unequal Elo.
+
+    c_j**2 * eps_j = (R**2/400) * (8E/R**2) = E/50. The range drops out entirely,
+    so games-to-converge depends only on the Elo the parameter is worth.
+    """
+    for param_range in (10.0, 100.0, 1000.0):
+        for elo in (0.2, 2.0):
+            product = folklore_c(param_range) ** 2 * curvature_from_elo(
+                elo, param_range
+            )
+            assert product == pytest.approx(elo / 50.0, rel=1e-12)
+
+
+def test_gauss_newton_equalises_curvature_times_probe_squared() -> None:
+    """The condition itself: c_j**2 * eps_j constant across axes."""
+    ranges = [100.0, 40.0, 400.0, 60.0]
+    elos = [2.0, 0.5, 4.0, 0.2]
+    products = [
+        gauss_newton_c(rng, e) ** 2 * curvature_from_elo(e, rng)
+        for rng, e in zip(ranges, elos, strict=True)
+    ]
+    assert max(products) == pytest.approx(min(products), rel=1e-12)
+
+
+def test_the_spread_under_the_folklore_rule_is_exactly_max_over_min_elo() -> None:
+    """And Gauss-Newton makes it 1, so the run is set by no single weak axis."""
+    ranges = [100.0, 40.0, 400.0, 60.0]
+    elos = [2.0, 0.5, 4.0, 0.2]
+    r = 2.132e-04
+
+    eps = [curvature_from_elo(e, rng) for e, rng in zip(elos, ranges, strict=True)]
+    lam_folk = [
+        games_per_axis(r, folklore_c(rng), e)
+        for rng, e in zip(ranges, eps, strict=True)
+    ]
+    lam_gn = [
+        games_per_axis(r, gauss_newton_c(rng, el), e)
+        for rng, el, e in zip(ranges, elos, eps, strict=True)
+    ]
+
+    assert max(lam_folk) / min(lam_folk) == pytest.approx(
+        max(elos) / min(elos), rel=1e-9
+    )
+    assert max(lam_gn) / min(lam_gn) == pytest.approx(1.0, rel=1e-9)
+
+
+def test_the_two_rules_coincide_when_every_parameter_is_worth_the_same() -> None:
+    """The folklore rule is self-consistent exactly under that assumption."""
+    ranges = [10.0, 100.0, 1000.0]
+    elos = [2.0, 2.0, 2.0]
+    raw = [gauss_newton_c(rng, e) for rng, e in zip(ranges, elos, strict=True)]
+    folk = [folklore_c(rng) for rng in ranges]
+    scale = sum(folk) / sum(raw)
+    for got, want in zip((x * scale for x in raw), folk, strict=True):
+        assert got == pytest.approx(want, rel=1e-12)
+
+
+def test_the_c_end_comparison_runs(capsys: pytest.CaptureFixture) -> None:
+    """The CLI path that produces the comparison table."""
+    code = main(["--n", "4", "--ranges", "100", "40", "--elos", "2.0", "0.5"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "RANGE CANCELS" in out
+
+
+def test_mismatched_ranges_and_elos_are_rejected() -> None:
+    """A silent zip truncation would produce a plausible, wrong table."""
+    assert main(["--ranges", "100", "40", "--elos", "2.0"]) == 1
