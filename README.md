@@ -44,6 +44,10 @@ The project is organized into the following modules:
     *   `spsa_gradient.py`: SPSA gradient estimator diagnostics.
     *   `optimize_spsa_toy.py`: Toy optimizer with eigen-spectrum tooling.
     *   `common.py`: Shared testing utilities.
+    *   `design.py`: SPSA design equations -- the `r_end` and game budget a
+        target precision and parameter count imply. Fishtest defaults `r_end` to
+        a constant 0.002, which is right at about 14 parameters and wrong
+        elsewhere; see `uv run spsa-design`.
     *   `plot_spsa_schedule.py`: Plots the naive Fishtest SPSA internal schedules
         (c_k, a_k, r_k) over iterations for a given (num_pairs, A, alpha,
         gamma, c_end, r_end).
@@ -87,12 +91,16 @@ uv run noise-ball
 uv run rademacher
 uv run spsa-gradient
 
+# Size a run: the r_end a given parameter count actually calls for
+uv run spsa-design
+uv run spsa-design --precision 0.5 --confidence 0.95 --sigma2 0.2274 --n 1 8 32
+
 # Plot naive SPSA internal schedules (c_k, a_k, r_k)
 uv run plot-spsa-schedule
 ```
 
-Only `noise-ball`, `optimize-spsa-toy`, `validate-penta`, `rademacher` and
-`spsa-gradient` parse command-line arguments. The remaining entry points take
+Only `noise-ball`, `optimize-spsa-toy`, `validate-penta`, `rademacher`,
+`spsa-gradient` and `spsa-design` parse command-line arguments. The remaining entry points take
 no options and run to completion with built-in constants, so passing `--help`
 to them starts the run.
 

@@ -11,6 +11,21 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+#: Geometry warnings are emitted once per distinct message per process. A sweep
+#: builds one config per arm per seed -- 192 of them -- and a warning repeated
+#: 192 times is a warning nobody reads.
+_WARNED: set[str] = set()
+
+
+def _warn_once(message: str, *args: object) -> None:
+    """Log a warning the first time this exact message is produced."""
+    key = message % args if args else message
+    if key in _WARNED:
+        return
+    _WARNED.add(key)
+    logger.warning("%s", key)
+
+
 # --- Constants ---
 ELO_CLIP_RANGE: float = 599.0
 EPSILON: float = 1e-9
@@ -484,7 +499,7 @@ class SPSAConfig:
         """
         depth = abs(self.peak_elo - self.start_elo)
         if depth > EPSILON and self.c_elo_gap > 0.5 * depth:
-            logger.warning(
+            _warn_once(
                 "geometry: c_elo_gap=%.4g asks each probe to cost more than half "
                 "the %.4g Elo the whole tune is worth",
                 self.c_elo_gap,
@@ -499,7 +514,7 @@ class SPSAConfig:
         distance = np.abs(self.theta_start - self.theta_peak)[active]
         ratio = self.c_dev[active][distance > EPSILON] / distance[distance > EPSILON]
         if ratio.size and (ratio.max() > 1.0 or ratio.min() < 0.1):
-            logger.warning(
+            _warn_once(
                 "geometry: c_dev/distance-to-optimum spans %.3g..%.3g, outside "
                 "the sane 0.1..1.0; probes are not sized to the basin they search",
                 float(ratio.min()),

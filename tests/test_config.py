@@ -133,8 +133,18 @@ def test_c_dev_no_longer_depends_on_the_true_optimum() -> None:
 
 def test_incoherent_geometry_is_reported(caplog: pytest.LogCaptureFixture) -> None:
     """The shipped defaults fail both checks; they must say so."""
+    from fishtest_spsa_lab.simulator import config as config_module
+
+    config_module._WARNED.clear()  # noqa: SLF001 - warnings are once-per-process
     with caplog.at_level(logging.WARNING):
         SPSAConfig()
     messages = " ".join(record.message for record in caplog.records)
     assert "the whole tune is worth" in messages
     assert "c_dev/distance-to-optimum" in messages
+
+    # And exactly once: a sweep builds 192 configs.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        SPSAConfig()
+        SPSAConfig()
+    assert not caplog.records
