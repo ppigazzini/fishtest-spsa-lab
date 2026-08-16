@@ -7,7 +7,7 @@ We compare:
 - Micro (real): sequential, using the actual outcomes sequence
 
 Plot overlay: original order vs end-adjacent shuffled order (same as SGD).
-Assertions: corrected macro == micro const-mean (for both orders).
+Gate: corrected macro == micro const-mean (for both orders), at 1e-12.
 """
 # ruff: noqa: I001
 
@@ -23,9 +23,15 @@ from .common import (
     make_schedule,
     end_adjacent_shuffle,
     build_sequence,
-    series_allclose,
+    max_abs_gap,
+    series_scale,
     compute_a_from_outcomes,
 )
+from .gate import Gate, show
+
+#: Tolerance for the macro-vs-micro anchor. The measured gap is of order 1e-16
+#: on a theta scale of 0.16, so this leaves about four orders of headroom.
+TOLERANCE: float = 1e-12
 
 # ----- data models -----
 
@@ -209,8 +215,23 @@ def run_micro(
 # ----- main -----
 
 
-def main() -> None:
-    """Run the main SPSA validation simulation."""
+def _axis_gap(*series: Series) -> float:
+    """Return 0 when every series shares one time axis, 1 otherwise.
+
+    Reported as a check rather than asserted so a mismatch names itself in the
+    result table instead of raising a traceback.
+    """
+    first = series[0].t_pairs
+    return 0.0 if all(s.t_pairs == first for s in series[1:]) else 1.0
+
+
+def main() -> int:
+    """Run the SPSA macro-vs-micro validation and return an exit code."""
+    gate = Gate(
+        "validate-spsa",
+        "classic SPSA: mean-gain macro == const-mean micro",
+    )
+
     # schedule (mirror SGD)
     base_seed: int = 424242
     num_reports: int = 100
@@ -239,15 +260,24 @@ def main() -> None:
     micro_mean = run_micro(seqs_mean, sched=sched)
     micro_real = run_micro(seqs_real, sched=sched)
 
-    # sanity: corrected macro == micro_mean exactly (by construction)
-    assert (  # noqa: S101
-        macro_cor.t_pairs
-        == micro_mean.t_pairs
-        == micro_real.t_pairs
-        == macro_unc.t_pairs
-    ), "time axes differ"
-    assert series_allclose(macro_cor.theta, micro_mean.theta), (  # noqa: S101
-        "corrected macro != micro const-mean"
+    gate.note("reports", num_reports)
+    gate.note("pairs per report", f"{n_min}..{n_max}")
+    gate.note("total pairs", macro_cor.t_pairs[-1])
+    gate.note("base seed", base_seed)
+    gate.note("theta scale", series_scale(micro_mean.theta))
+
+    # The anchor: one batched update equals N sequential micro-updates wherever
+    # the dynamics are linear. Asserted at 1e-12 against a measured gap of order
+    # 1e-16, so the tolerance carries four orders of headroom.
+    gate.check_le(
+        "time axes agree (original)",
+        _axis_gap(macro_cor, micro_mean, micro_real, macro_unc),
+        0.0,
+    )
+    gate.check_le(
+        "mean-gain macro == const-mean micro",
+        max_abs_gap(macro_cor.theta, micro_mean.theta),
+        TOLERANCE,
     )
 
     # Figure 1: only the original schedule
@@ -283,7 +313,7 @@ def main() -> None:
     ax1.set_xlabel("pairs")
     fig1.suptitle("SPSA — single schedule (theta)", y=0.98)
     plt.tight_layout()
-    plt.show()
+    show(fig1)
 
     # custom shuffled order (same end-adjacent scheme as SGD)
     p_swap = 4.0 / 5.0
@@ -305,14 +335,26 @@ def main() -> None:
     micro_mean2 = run_micro(seqs_mean_shuf, sched=sched)
     micro_real2 = run_micro(seqs_real_shuf, sched=sched)
 
-    assert (  # noqa: S101
-        macro_cor2.t_pairs
-        == micro_mean2.t_pairs
-        == micro_real2.t_pairs
-        == macro_unc2.t_pairs
-    ), "time axes differ (shuffled)"
-    assert series_allclose(macro_cor2.theta, micro_mean2.theta), (  # noqa: S101
-        "corrected macro != micro const-mean (shuffled)"
+    gate.check_le(
+        "time axes agree (shuffled)",
+        _axis_gap(macro_cor2, micro_mean2, micro_real2, macro_unc2),
+        0.0,
+    )
+    gate.check_le(
+        "mean-gain macro == const-mean micro (shuffled)",
+        max_abs_gap(macro_cor2.theta, micro_mean2.theta),
+        TOLERANCE,
+    )
+
+    # The tolerance is only meaningful if it can reject something. The
+    # uncorrected macro -- which reuses the first micro-step's gain for the whole
+    # block -- is the defect the mean-gain correction removes, and it must land
+    # far outside the tolerance the corrected path is asserted at.
+    gate.check_le(
+        "uncorrected macro is rejected by that tolerance",
+        TOLERANCE,
+        max_abs_gap(macro_unc.theta, micro_mean.theta),
+        "the check above can fail; it is not a tautology",
     )
 
     # Figure 2: original vs shuffled overlay
@@ -379,8 +421,10 @@ def main() -> None:
     ax2.set_xlabel("pairs")
     fig2.suptitle("SPSA — original vs end-adjacent shuffled (theta)", y=0.98)
     plt.tight_layout()
-    plt.show()
+    show(fig2)
+
+    return gate.report()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

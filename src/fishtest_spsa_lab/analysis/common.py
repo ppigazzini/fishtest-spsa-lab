@@ -143,6 +143,28 @@ def series_allclose(
     )
 
 
+def max_abs_gap(a: Sequence[float], b: Sequence[float]) -> float:
+    """Return the largest element-wise absolute difference between two series.
+
+    The measured quantity behind ``series_allclose``. A gate reports this rather
+    than a boolean so the margin against the tolerance is visible: a gap of
+    2.5e-16 against a tolerance of 1e-12 says the tolerance has four orders of
+    headroom, where "True" says nothing.
+    """
+    if not a and not b:
+        return 0.0
+    return max(abs(float(x) - float(y)) for x, y in zip(a, b, strict=True))
+
+
+def series_scale(*series: Sequence[float]) -> float:
+    """Return the largest absolute value across the given series.
+
+    A gap is only interpretable next to the scale it sits on.
+    """
+    values = [abs(float(v)) for s in series for v in s]
+    return max(values) if values else 0.0
+
+
 def compute_a_from_outcomes(
     outcomes_by_report: Sequence[Sequence[int]],
     frac: float = 0.1,
@@ -212,10 +234,12 @@ __all__ = [
     "end_adjacent_shuffle",
     "gen_pentanomial_outcomes",
     "make_schedule",
+    "max_abs_gap",
     "mu2_hat",
     "plot_many",
     "reconstruct_x_prev",
     "series_allclose",
+    "series_scale",
     "sf_weighting_update",
     "update_mu2_stats",
 ]
