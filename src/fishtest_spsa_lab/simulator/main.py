@@ -38,7 +38,10 @@ logger = logging.getLogger(__name__)
 
 
 BASELINE_OPTIMIZER = "spsa"
-DEFAULT_SEEDS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8)
+#: The sweep costs about 45 s under the vendored oracle and a few minutes under
+#: a calibrated one, so the seed count is set by what resolves an effect rather
+#: than by runtime. 8 was chosen when the cost was unknown.
+DEFAULT_SEEDS: tuple[int, ...] = tuple(range(1, 17))
 
 #: Family-wise significance level for the whole comparison table.
 ALPHA: float = 0.05
@@ -79,6 +82,20 @@ def main() -> int:
         batch_size,
         num_workers,
     )
+
+    # Size the experiment before running it. A comparison at a fraction of the
+    # convergence budget is a comparison between unconverged trajectories, where
+    # the schedule still dominates the optimizer; the ordering that comes out is
+    # not a statement about optimizers and must not be printed as one.
+    budget = SPSAConfig(num_pairs=num_pairs, batch_size=batch_size).design_budget()
+    sufficient = budget is None or budget.is_sufficient
+    if budget is not None:
+        logger.info("Design budget: %s", budget.summary())
+        logger.info(
+            "  lambda_j per active axis: %s games; effective r = %.3e",
+            ", ".join(f"{x:,.0f}" for x in sorted(set(budget.lambda_per_axis))),
+            budget.effective_r,
+        )
 
     # Same seeds, same worker pool, same match noise for every arm: the
     # comparison is paired, so the between-seed variance cancels.
@@ -140,8 +157,14 @@ def main() -> int:
     logger.info(header)
     logger.info("-" * len(header))
 
-    ranked = sorted(optimizers, key=lambda n: -mean_ci(results[n]).mean)
-    for name in ranked:
+    # Order by mean only when the budget supports an ordering; otherwise sort by
+    # name, so the table is a record of measurements and not a league table.
+    ordered = (
+        sorted(optimizers, key=lambda n: -mean_ci(results[n]).mean)
+        if sufficient
+        else sorted(optimizers)
+    )
+    for name in ordered:
         est = mean_ci(results[name])
         ci = f"[{est.low:+.4f}, {est.high:+.4f}]"
         if name == BASELINE_OPTIMIZER:
@@ -165,6 +188,14 @@ def main() -> int:
 
     separated = sum(1 for n in contenders if adjusted[n] < ALPHA)
     logger.info("")
+    if not sufficient and budget is not None:
+        logger.warning(
+            "NOT RANKED. %s Rows are in name order; any ordering by mean at this "
+            "budget is a permutation of statistically indistinguishable arms. "
+            "Raise num_pairs to %s, or read only the arms marked '*'.",
+            budget.summary(),
+            f"{budget.recommended_games / 2:,.0f} pairs",
+        )
     logger.info(
         "'*' marks a paired difference significant at family-wise alpha=%.2f after "
         "Holm-Bonferroni over %d comparisons: %d of %d separate from the baseline. "

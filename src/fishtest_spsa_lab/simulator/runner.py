@@ -714,13 +714,13 @@ class AsyncSpsaRunner(SpsaRunner):
             dist_str = ", ".join(
                 f"{int(c)}: {int(n)}" for c, n in zip(uniq, counts, strict=True)
             )
-            logger.info(
+            logger.debug(
                 "Worker concurrency distribution (concurrency: count): %s",
                 dist_str,
             )
 
             # 2) Speed-factor distribution
-            logger.info(
+            logger.debug(
                 "Worker speed_factor stats: min=%.2f max=%.2f mean=%.2f median=%.2f",
                 float(speeds.min()),
                 float(speeds.max()),
@@ -738,7 +738,7 @@ class AsyncSpsaRunner(SpsaRunner):
                 (bs_arr * bs_weights).sum() / bs_weights.sum(),
             )
             bs_pair_weighted_median = _weighted_median(bs_arr, bs_weights)
-            logger.info(
+            logger.debug(
                 (
                     "Batch size stats (pairs): min=%d max=%d job_mean=%.1f "
                     "job_median=%.1f pair_mean=%.1f pair_median=%.1f"
@@ -757,7 +757,7 @@ class AsyncSpsaRunner(SpsaRunner):
             total_wp = float(wp.sum())
             if total_wp > 0.0:
                 share = 100.0 * wp / total_wp
-                logger.info(
+                logger.debug(
                     "Worker pairs processed stats: min=%d max=%d mean=%.1f median=%.1f",
                     int(wp.min()),
                     int(wp.max()),
@@ -796,7 +796,7 @@ class AsyncSpsaRunner(SpsaRunner):
                     self.weighted_abs_lag_pairs / max(1, self.pairs_processed),
                 ),
             }
-            logger.info(
+            logger.debug(
                 "Out-of-order: mean|lag|=%.1f p50=%+.0f p90=%+.0f p99=%+.0f (pairs); "
                 "norm p50=%+.2f p90=%+.2f p99=%+.2f (batches)",
                 lag_stats["weighted_abs_lag_pairs"],

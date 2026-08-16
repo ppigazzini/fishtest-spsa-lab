@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from functools import cached_property
 
@@ -435,6 +436,34 @@ class SPSAConfig:
         sigma = (np.log(self.game_duration_95th) - mu) / Z_95
         return mu, sigma
 
+    def design_budget(self) -> DesignBudget | None:
+        """Return the game budget this configuration needs to converge.
+
+        ``None`` when the geometry is degenerate (no active axes, or no derived
+        perturbation scale), because there is then nothing to size.
+        """
+        if self.c_dev is None or self.k_elo <= EPSILON:
+            return None
+        active = self.w_true > EPSILON
+        if not np.any(active):
+            return None
+
+        r_eff = (self.spsa.r_end / 2.0) * self.gradient_scale_factor
+        if r_eff <= 0.0:
+            return None
+
+        eps = self.k_elo * self.w_true[active]
+        c_j = self.c_dev[active]
+        lam = ELO_C / (8.0 * r_eff * (c_j**2) * eps)
+        slowest = float(np.max(lam))
+        return DesignBudget(
+            lambda_per_axis=lam,
+            slowest_axis_games=slowest,
+            recommended_games=LAMBDA_RATIO * 2.0 * slowest,
+            budget_games=int(self.num_pairs) * GAMES_PER_PAIR,
+            effective_r=r_eff,
+        )
+
     def __post_init__(self) -> None:
         """Derive k_elo (true geometry) and developer-level c_dev/ranges.
 
@@ -538,6 +567,66 @@ class SPSAConfig:
             self.sf_adam.mu2.sum_s2_over_n = prior_reports * (
                 var_p + prior_mean_n * (mu_p * mu_p)
             )
+
+
+@dataclass(frozen=True, slots=True)
+class DesignBudget:
+    """How many games a configuration needs before its arms can be compared.
+
+    From the design equations of Van den Bergh's ``spsa_simul``, reproduced in
+    ``__DEV/260809-0-REPORT.md`` Appendix C:
+
+    ```text
+    eps_j     = Elo curvature along axis j = k_elo * w_true_j
+    lambda_j  = C / (8 * r * c_j**2 * eps_j)          games for axis j
+    num_games = lambda_ratio * 2 * max_j lambda_j     lambda_ratio = 3
+    ```
+
+    ``r`` is the *effective* gain, which in this lab is ``r_end / 2`` from the
+    halved signal and a further ``1/sqrt(N)`` when dimensionality compensation is
+    on. Both are deliberate deviations from Fishtest's gain and both slow
+    convergence, so both belong in the sizing.
+    """
+
+    lambda_per_axis: np.ndarray
+    slowest_axis_games: float
+    recommended_games: float
+    budget_games: int
+    effective_r: float
+
+    @property
+    def fraction_of_recommended(self) -> float:
+        """Budget as a fraction of the recommended one. Below 1 means unconverged."""
+        if self.recommended_games <= 0.0:
+            return math.inf
+        return self.budget_games / self.recommended_games
+
+    @property
+    def is_sufficient(self) -> bool:
+        """Whether the run can be expected to have converged."""
+        return self.fraction_of_recommended >= 1.0
+
+    def summary(self) -> str:
+        """One line stating whether this budget can answer a comparison."""
+        frac = self.fraction_of_recommended
+        if self.is_sufficient:
+            return (
+                f"budget {self.budget_games:,} games = {frac:.2f}x the "
+                f"recommended {self.recommended_games:,.0f}"
+            )
+        return (
+            f"budget {self.budget_games:,} games is 1/{1 / frac:,.0f} of the "
+            f"{self.recommended_games:,.0f} games the design equation asks for; "
+            f"no arm has converged and differences between arms are not "
+            f"attributable to the optimizers"
+        )
+
+
+#: Van den Bergh's default: run 3x the two-sided convergence time constant.
+LAMBDA_RATIO: float = 3.0
+
+#: 800 / ln(10), the Elo-to-logit constant.
+ELO_C: float = 800.0 / math.log(10.0)
 
 
 def objective_function(theta: np.ndarray, config: SPSAConfig) -> float:
