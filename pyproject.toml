@@ -26,6 +26,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fishtest_spsa_lab"]
+# vendor/pentamodel/optimize.py imports nevergrad, which is not a dependency and
+# is not in the lock, so the module is unimportable. Shipping it in the wheel
+# advertises an entry point that raises ModuleNotFoundError on first use.
+exclude = ["src/fishtest_spsa_lab/vendor/pentamodel/optimize.py"]
 
 [project.scripts]
 validate-spsa = "fishtest_spsa_lab.analysis.validate_spsa:main"

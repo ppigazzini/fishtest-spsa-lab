@@ -21,17 +21,60 @@ from fishtest_spsa_lab.simulator.optimizer import (
     OPTIMIZER_REGISTRY,
     PentaStatsMixin,
 )
+from fishtest_spsa_lab.simulator.oracle import (
+    TIME_CONTROL_SIGMA2,
+    PairOracle,
+    calibrate_spread,
+)
 from fishtest_spsa_lab.vendor.pentamodel.pentamodel import PentaModel
 
 logger = logging.getLogger(__name__)
 
 
 class GameProvider:
-    """Provides methods to generate game outcomes using the Pentamodel."""
+    """Provides methods to generate game outcomes using the Pentamodel.
+
+    Rebuilding a ``PentaModel`` per batch profiles at 60% of a 6,000-pair run
+    (0.059 s of 0.099 s), and ``__DEV/260809-0-REPORT.md`` M3 proposed fixing it
+    with the ``PentaProbCache`` that already exists in ``validate_pentanomial``.
+
+    **That does not work here, and the premise is worth recording so nobody
+    tries it again.** A cache keyed on Elo difference pays off only when the
+    schedule revisits Elo values. The runner's theta moves on every batch, so
+    every batch presents a distinct probe gap: measured over a 29,988-pair run
+    at batch 36, an Elo-keyed cache produced 833 distinct keys for 833 batches,
+    a hit rate of exactly 0.0%. The cache in ``validate_pentanomial`` works
+    because its Elo schedule is discrete; the runner's is not.
+
+    Making this cheaper means making the construction cheaper, not memoising it.
+    """
 
     def __init__(self, config: SPSAConfig) -> None:
         """Initialize the GameProvider with the given configuration."""
         self.config = config
+
+        self.pair_oracle: PairOracle | None = None
+        if config.time_control is not None:
+            target = TIME_CONTROL_SIGMA2.get(config.time_control)
+            if target is None:
+                msg = (
+                    f"unknown time_control {config.time_control!r}; "
+                    f"expected one of {sorted(TIME_CONTROL_SIGMA2)}"
+                )
+                raise ValueError(msg)
+            self.pair_oracle = PairOracle(
+                book_sigma=config.book_sigma,
+                spread=calibrate_spread(target, book_sigma=config.book_sigma),
+            )
+
+    def _probs(self, input_elo: float) -> np.ndarray:
+        """Return pentanomial probabilities for a clipped Elo difference."""
+        if self.pair_oracle is not None:
+            return self.pair_oracle.pentanomial_probs(input_elo)
+        return np.asarray(
+            PentaModel(opponentElo=input_elo).pentanomialProbs,
+            dtype=float,
+        )
 
     def simulate_match(
         self,
@@ -50,8 +93,7 @@ class GameProvider:
         # PentaModel(opponentElo=X) means Hero is 0, Opponent is X.
         input_elo = np.clip(-elo_diff, -ELO_CLIP_RANGE, ELO_CLIP_RANGE)
 
-        model = PentaModel(opponentElo=input_elo)
-        probs = model.pentanomialProbs
+        probs = self._probs(float(input_elo))
 
         # multinomial requires a sequence, probs is a list
         if batch_size_pairs is None:

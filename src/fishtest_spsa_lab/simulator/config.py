@@ -11,9 +11,7 @@ import numpy as np
 ELO_CLIP_RANGE: float = 599.0
 EPSILON: float = 1e-9
 TINY_EPSILON: float = 1e-16
-SQRT_EPSILON: float = 1e-12
 LOG_INTERVAL: int = 100
-MAX_INACTIVE_PLOTS: int = 5
 
 # Default number of parameters per *active* group in SPSAConfig.param_groups.
 # Change this single value to scale the active dimensionality.
@@ -309,8 +307,21 @@ class SPSAConfig:
     # Concurrency range (in cores) for simulated workers
     worker_concurrency_min: int = 1
     worker_concurrency_max: int = 64
-    # Run-level TC ratio (e.g. 1 for 60+0.6, 2 for 30+0.3)
+    # Run-level TC ratio (e.g. 1 for 60+0.6, 2 for 30+0.3).
+    # NOTE: this scales batch sizes only. It does NOT change the per-pair
+    # outcome distribution; use `time_control` for that.
     tc_ratio: float = 1.0
+
+    # Oracle selection. None keeps the vendored PentaModel, whose book exit is
+    # deterministic and whose pentanomial therefore carries zero within-pair
+    # correlation -- see simulator/oracle.py. Set to "STC", "LTC" or "VLTC" to
+    # use the pair-aware oracle calibrated to that time control's per-pair
+    # variance. The default is None so that existing results are reproducible;
+    # switching it changes every number in the lab and is a deliberate act.
+    time_control: str | None = None
+    # Book-exit spread in centipawns, held fixed while the per-game spread is
+    # solved for. Only used when time_control is set.
+    book_sigma: float = 60.0
     # Worker speed heterogeneity (relative to 1.0 baseline)
     worker_speed_min: float = 0.5
     worker_speed_max: float = 2.0
@@ -499,24 +510,29 @@ class SPSAConfig:
             mu_p = 0.0
             var_p = 0.8
 
+            # Express the prior in the units the optimizer is actually fed.
+            # runner.py hands the step `net_wins * gradient_scale_factor / 2`,
+            # not a raw outcome sum, so a prior stated in raw outcome units
+            # over-estimates the second moment by 1/signal_scale**2 -- a factor
+            # of 88 at the default 22 parameters. Measured before this fix:
+            # _mu2_hat() started at 0.8 and, after 105 real reports, still drew
+            # 84% of its value (4.0 of 4.75) from the prior, holding the Adam
+            # denominator about 2.5x too large for the whole run.
+            #
+            # Measured effect on the outcome: none detectable. 8 paired seeds at
+            # 30,000 pairs gave +0.0065 +- 0.0283 Elo, which does not separate
+            # from zero. This is a units fix, not a performance fix, and it is
+            # recorded that way so nobody later credits it with a gain.
+            signal_scale = self.gradient_scale_factor / 2.0
+            var_p *= signal_scale * signal_scale
+            mu_p *= signal_scale
+
             self.sf_adam.mu2.reports = prior_reports
             self.sf_adam.mu2.sum_n = prior_reports * prior_mean_n
             self.sf_adam.mu2.sum_s = prior_reports * prior_mean_n * mu_p
             self.sf_adam.mu2.sum_s2_over_n = prior_reports * (
                 var_p + prior_mean_n * (mu_p * mu_p)
             )
-
-
-@dataclass
-class SPSAResult:
-    """Container for SPSA optimization results."""
-
-    config: SPSAConfig
-    trajectory: np.ndarray
-    cumulative_spsa_signal: np.ndarray
-    final_params: np.ndarray
-    convergence_metrics: dict[str, float | bool]
-    elapsed_time: float
 
 
 def objective_function(theta: np.ndarray, config: SPSAConfig) -> float:
