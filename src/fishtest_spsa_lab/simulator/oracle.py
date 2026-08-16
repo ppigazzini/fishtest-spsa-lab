@@ -1,57 +1,67 @@
-"""Pair-aware pentanomial oracle.
+"""Pair-aware pentanomial oracle, calibrated to real Fishtest tunes.
 
 The vendored ``PentaModel`` fixes the book exit at a deterministic ``v = +-100``
 centipawns and plays the two reversed-colour games at ``+v`` and ``-v``.
-Conditional on a *deterministic* v the two games are independent, and since there
-is nothing to marginalise over they are independent outright. Measured on the
-vendored model at equal strength:
+Conditional on a deterministic v the games are independent, and with nothing to
+marginalise over they are independent outright. Measured at equal strength:
 
 ```text
 game A (hero on the +100cp side): W 0.5000  D 0.4999  L 0.0001
 game B (hero on the -100cp side): W 0.0001  D 0.4999  L 0.5000
-cov(g_a, g_b) = 6.9e-18
-pentanomial [LL, DL, DD, WD, WW] = [5.6e-05, 0.25, 0.4999, 0.25, 5.6e-05]
+cov(g_a, g_b) = 6.9e-18      var(net pair)/2 = 0.250225      draw rate 50.0%
 ```
 
-Two consequences, and they are the reason this module exists.
+**The defect is the draw rate, not the correlation.** That is the opposite of
+what ``__DEV/260809-0-REPORT.md`` C1 concluded, and the correction matters
+because it changes what has to be fixed.
 
-**The pentanomial carries no pairing information.** Zero correlation means the
-entire variance-reduction rationale for reversed-colour pairs -- the reason
-Fishtest scores in pentanomials at all -- is absent from the model every noise
-number in this repository is derived from.
-
-**The distribution is frozen.** Because one game is a coin flip between win and
-draw while the other is a coin flip between loss and draw, ``p_WD`` and ``p_DL``
-sit at 0.25 whatever the spread ``b`` is set to. So ``var(net outcome)/2`` is
-pinned near 0.2502 and cannot reach the draw-heavier values real long time
-controls show.
-
-The fix is the one thing the model is missing: **draw the book exit once per pair
-and share it between the two games.** A balanced exit (small |v|) draws both
-games; a sharp exit decides both, in opposite directions. Marginalising over v
-induces the negative within-pair correlation that reversed-colour pairing exists
-to exploit, and it unfreezes the distribution, because the draw rate is now
-governed by how often the book hands out a balanced position.
-
-Integration over v is done by Gauss-Hermite quadrature rather than by sampling,
-so the returned probabilities are deterministic and exact to quadrature order --
-a sampled book exit would add a second noise source the caller cannot control.
-
-The per-game logistic is reimplemented here rather than called on ``PentaModel``,
-for one reason: the spread ``b`` is hardcoded at 22 in the vendored file, and a
-shared book exit alone cannot reach the targets. Measured range of
-``var(net)/2`` at equal strength:
+C1 read the zero correlation as removing "the entire variance-reduction
+rationale for reversed-colour pairs". Check it against the real pentanomials in
+``__DEV/260809-1-REPORT.md`` section 7, which give both a variance and a draw
+rate per time control. For symmetric games, ``var(pair net) = 2*var(game)*(1 +
+corr)`` with ``var(game) = 1 - d``, so the measured pairs imply
 
 ```text
-deterministic +-100cp exit, b = 22    0.2502   (and >= 0.25 for every b)
-shared random exit,         b = 22    0.021 .. 0.106, peaking near sigma = 100
+        sigma2    draw     implied within-pair correlation
+STC     0.2654   74.8%     +0.051
+LTC     0.2274   77.5%     +0.011
+VLTC    0.2133   78.7%     +0.001
 ```
 
-The two mechanisms bracket the real values from opposite sides, so both knobs are
-needed. ``b`` controls how much per-game randomness survives a given evaluation;
-``book_sigma`` controls how often the book hands out a decisive one. The vendored
-file is not edited, and ``b = 22`` remains the default so the reimplementation is
-verified against it.
+Real pairs at equal strength are **very nearly independent, and slightly
+positively correlated**. Fishtest's pairing does not buy a large negative
+within-pair correlation; it removes the opening's contribution to the variance
+*between* pairs. So a model with zero within-pair correlation is not wrong about
+pairing -- but a model that draws 50% of its games when the real ones draw 75 to
+79% is wrong about everything the draw rate touches, which is the entire
+Elo-to-outcome mapping.
+
+The mechanism this module adds is still the shared book exit -- drawn once per
+pair and used at ``+v`` and ``-v`` -- because it is what unfreezes the
+distribution. With a deterministic exit one game is a coin flip between win and
+draw and the other between loss and draw, so ``p_WD`` and ``p_DL`` are pinned at
+0.25 whatever the spread ``b`` is, and ``var(net)/2`` cannot fall below about
+0.25. LTC and VLTC sit below that floor and were unreachable.
+
+Two knobs are needed and there are exactly two measurements to fix them:
+
+* ``spread`` (the vendored ``b``, hardcoded at 22) sets how much per-game
+  randomness survives a given evaluation, and therefore ``sigma2``;
+* ``book_sigma`` sets how often the book hands out a decisive position, and
+  therefore the draw rate.
+
+:func:`calibrate` solves both. Calibrating on ``sigma2`` alone -- which an
+earlier version of this module did -- leaves the draw rate 5 to 9 points low and
+drives the correlation to -0.26, three to twenty times larger in magnitude than
+any real tune and of the wrong sign. Matching both targets lands the correlation
+within 0.05 of the measured values without ever targeting it, which is the
+strongest evidence available that the two-parameter family is the right one.
+
+Integration over the book exit is by Gauss-Hermite quadrature rather than
+sampling, so the probabilities are deterministic and add no second noise source.
+The per-game logistic is reimplemented here only because ``b`` is hardcoded in
+the vendored file, which must not be edited; it is pinned against the vendored
+form to 1.7e-16 when configured identically.
 """
 
 from __future__ import annotations
@@ -62,8 +72,10 @@ from fishtest_spsa_lab.vendor.pentamodel.pentamodel import PentaModel
 
 __all__ = [
     "TIME_CONTROL_SIGMA2",
+    "TIME_CONTROL_TARGETS",
     "VENDORED_SPREAD",
     "PairOracle",
+    "calibrate",
     "calibrate_spread",
     "pair_sigma2",
 ]
@@ -77,16 +89,33 @@ EVAL_SCALE: float = 100.0
 #: ``PentaModel`` exactly, which is how this reimplementation is tested.
 VENDORED_SPREAD: float = 22.0
 
-#: Target ``var(net pair outcome) / 2`` per time control, the convention used
-#: throughout this repository and in ``__DEV/260809-0-REPORT.md`` Appendix C.
-#: Longer time controls draw more often and are therefore quieter.
+#: Measured targets per time control, from the real pentanomials of eight
+#: Fishtest tunes -- ``__DEV/260809-1-REPORT.md`` section 7.
 #:
-#: The vendored model sits at 0.2502 and cannot go below about 0.25, so the two
-#: longer controls were unreachable before this module existed.
+#:   STC 10+0.1 / 30+0.3   3 tests   sigma2 0.2654 (0.2603-0.2696)  draws 74.4-75.1%
+#:   LTC 60+0.6            4 tests   sigma2 0.2274 (0.2264-0.2282)  draws 77.4-77.6%
+#:   VLTC                  1 test    sigma2 0.2133                  draws 78.7%
+#:
+#: ``sigma2`` is ``var(net pair outcome) / 2``. That convention is not stated in
+#: the source table, which labels the column "per game", but it is pinned by the
+#: same report quoting 0.2502 for the vendored model: measured here, the vendored
+#: model gives var(net)/2 = 0.250225 and a per-game score variance of 0.0626, so
+#: only the first reading is consistent. The other candidate reading is also
+#: impossible on its face -- a score in {0, 0.5, 1} with mean 0.5 has variance
+#: at most 0.25, and 0.2654 exceeds it.
+#:
+#: The draw rate is the second, independent target, and it is what makes the
+#: calibration determined: two measured quantities fix the two free parameters.
+#: Calibrating on sigma2 alone leaves the draw rate 5-9 points low.
+TIME_CONTROL_TARGETS: dict[str, tuple[float, float]] = {
+    "STC": (0.2654, 0.7475),
+    "LTC": (0.2274, 0.7750),
+    "VLTC": (0.2133, 0.7870),
+}
+
+#: Back-compatible view of the variance targets alone.
 TIME_CONTROL_SIGMA2: dict[str, float] = {
-    "STC": 0.2654,
-    "LTC": 0.2274,
-    "VLTC": 0.2133,
+    tc: sigma2 for tc, (sigma2, _draw) in TIME_CONTROL_TARGETS.items()
 }
 
 #: Pentanomial outcome scale, in net units. Index order is
@@ -148,6 +177,7 @@ class PairOracle:
         self._decimals = int(cache_decimals)
         self._cache: dict[float, np.ndarray] = {}
         self._moment_cache: dict[float, tuple[float, float, float, float]] = {}
+        self._draw_cache: dict[float, float] = {}
 
         # Gauss-Hermite integrates against exp(-x**2); v = sqrt(2)*sigma*x turns
         # that into a Normal(0, sigma**2) expectation, and the weights are
@@ -257,6 +287,25 @@ class PairOracle:
         self._moment_cache[key] = moments
         return moments
 
+    def game_draw_rate(self, elo_diff: float = 0.0) -> float:
+        """Fraction of individual games drawn, over both games of the pair.
+
+        Not recoverable from the pentanomial -- its middle bucket merges DD with
+        WL and LW -- so it is accumulated from the same quadrature. It is the
+        second independent quantity the real tunes report, and calibrating
+        against both it and sigma2 is what fixes the two free parameters.
+        """
+        key = float(round(float(elo_diff), self._decimals))
+        cached = self._draw_cache.get(key)
+        if cached is not None:
+            return cached
+        shift = PentaModel(opponentElo=key).s
+        total = 0.0
+        for v, weight in zip(self._v_nodes, self._v_weights, strict=True):
+            total += weight * 0.5 * (self._draw(v, shift) + self._draw(-v, shift))
+        self._draw_cache[key] = total
+        return total
+
     def pair_correlation(self, elo_diff: float = 0.0) -> float:
         """Correlation between the two games of a pair.
 
@@ -327,3 +376,60 @@ def calibrate_spread(
         else:
             hi = mid
     return 0.5 * (lo + hi)
+
+
+#: Outer bisection bounds on the book spread, in centipawns.
+_BOOK_LOWER: float = 0.5
+_BOOK_UPPER: float = 8.0e2
+
+
+def calibrate(
+    target_sigma2: float,
+    target_draw_rate: float,
+    *,
+    nodes: int = DEFAULT_QUADRATURE_NODES,
+) -> tuple[float, float]:
+    """Solve for ``(book_sigma, spread)`` matching both measured targets.
+
+    Two knobs, two measurements, one solution. The structure that makes this
+    tractable is that the two targets separate cleanly:
+
+    * at fixed ``book_sigma``, ``sigma2`` is monotone increasing in ``spread``
+      (more per-game randomness, more decisive pairs);
+    * at fixed ``sigma2``, the game draw rate is monotone *decreasing* in
+      ``book_sigma`` (a wider book hands out sharper positions). Measured at the
+      LTC variance: 77.1% at 10 cp falling to 14.7% at 500 cp.
+
+    So the inner solve fixes the variance and the outer solve walks the resulting
+    draw rate, and neither needs a derivative.
+
+    Calibrating on variance alone -- the first implementation -- leaves the draw
+    rate 5 to 9 points below the measured tunes, which matters because the draw
+    rate is what the Elo-to-outcome mapping is most sensitive to.
+    """
+
+    def draw_at(book_sigma: float) -> tuple[float, float]:
+        spread = calibrate_spread(target_sigma2, book_sigma=book_sigma, nodes=nodes)
+        oracle = PairOracle(book_sigma=book_sigma, spread=spread, nodes=nodes)
+        return oracle.game_draw_rate(0.0), spread
+
+    lo, hi = _BOOK_LOWER, _BOOK_UPPER
+    draw_lo, spread_lo = draw_at(lo)
+    if target_draw_rate >= draw_lo:
+        return lo, spread_lo
+    draw_hi, spread_hi = draw_at(hi)
+    if target_draw_rate <= draw_hi:
+        return hi, spread_hi
+
+    spread = spread_lo
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        draw_mid, spread = draw_at(mid)
+        if draw_mid > target_draw_rate:
+            lo = mid
+        else:
+            hi = mid
+    book_sigma = 0.5 * (lo + hi)
+    return book_sigma, calibrate_spread(
+        target_sigma2, book_sigma=book_sigma, nodes=nodes
+    )

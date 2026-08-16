@@ -312,16 +312,21 @@ class SPSAConfig:
     # outcome distribution; use `time_control` for that.
     tc_ratio: float = 1.0
 
-    # Oracle selection. None keeps the vendored PentaModel, whose book exit is
-    # deterministic and whose pentanomial therefore carries zero within-pair
-    # correlation -- see simulator/oracle.py. Set to "STC", "LTC" or "VLTC" to
-    # use the pair-aware oracle calibrated to that time control's per-pair
-    # variance. The default is None so that existing results are reproducible;
-    # switching it changes every number in the lab and is a deliberate act.
-    time_control: str | None = None
-    # Book-exit spread in centipawns, held fixed while the per-game spread is
-    # solved for. Only used when time_control is set.
-    book_sigma: float = 60.0
+    # Oracle selection: "STC", "LTC", "VLTC", or None for the vendored
+    # PentaModel. See simulator/oracle.py.
+    #
+    # The default is LTC, calibrated to the four real 60+0.6 tunes in
+    # __DEV/260809-1-REPORT.md section 7 -- per-pair variance 0.2274 and a 77.5%
+    # draw rate, both matched. The vendored model draws 50% of its games where
+    # the real ones draw 75-79%, which misstates the entire Elo-to-outcome
+    # mapping; it is retained as `None` for reproducing pre-2026-08-16 results.
+    #
+    # This default was flipped on 2026-08-16 and every absolute Elo figure in the
+    # lab moved with it: the predicted stationary noise floor drops 9.1% at LTC
+    # relative to the vendored oracle. Comparisons between arms are unaffected in
+    # kind -- see the report's section 10.3, where the ranking is noise under
+    # either oracle.
+    time_control: str | None = "LTC"
     # Worker speed heterogeneity (relative to 1.0 baseline)
     worker_speed_min: float = 0.5
     worker_speed_max: float = 2.0

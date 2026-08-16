@@ -22,9 +22,9 @@ from fishtest_spsa_lab.simulator.optimizer import (
     PentaStatsMixin,
 )
 from fishtest_spsa_lab.simulator.oracle import (
-    TIME_CONTROL_SIGMA2,
+    TIME_CONTROL_TARGETS,
     PairOracle,
-    calibrate_spread,
+    calibrate,
 )
 from fishtest_spsa_lab.vendor.pentamodel.pentamodel import PentaModel
 
@@ -55,17 +55,16 @@ class GameProvider:
 
         self.pair_oracle: PairOracle | None = None
         if config.time_control is not None:
-            target = TIME_CONTROL_SIGMA2.get(config.time_control)
-            if target is None:
+            targets = TIME_CONTROL_TARGETS.get(config.time_control)
+            if targets is None:
                 msg = (
                     f"unknown time_control {config.time_control!r}; "
-                    f"expected one of {sorted(TIME_CONTROL_SIGMA2)}"
+                    f"expected one of {sorted(TIME_CONTROL_TARGETS)} or None"
                 )
                 raise ValueError(msg)
-            self.pair_oracle = PairOracle(
-                book_sigma=config.book_sigma,
-                spread=calibrate_spread(target, book_sigma=config.book_sigma),
-            )
+            target_sigma2, target_draw = targets
+            book_sigma, spread = calibrate(target_sigma2, target_draw)
+            self.pair_oracle = PairOracle(book_sigma=book_sigma, spread=spread)
 
     def _probs(self, input_elo: float) -> np.ndarray:
         """Return pentanomial probabilities for a clipped Elo difference."""
