@@ -43,18 +43,38 @@ from .validate_variance import (
 # Unlike SPSA and SF-SGD, schedule-free Adam is NOT an exact macro-vs-micro
 # identity. The macro path applies one denominator, taken at the end of the
 # block, to all N micro-steps; the micro path re-derives it each step. Adam's
-# bias correction cancels that ramp exactly only while the second-moment level
-# is constant, and the online mu2 estimate moves from block to block, so a
-# residual remains. SPSA_macro_micro.md previously called this equality "exact";
-# it is not, and these bounds are what it actually is.
+# bias correction cancels that ramp exactly only while the second-moment level is
+# constant, and the online mu2 estimate moves from block to block, so a residual
+# remains. SPSA_macro_micro.md once called this equality "exact"; it is not, and
+# these bounds are what it actually is.
 #
-# The bounds are set at roughly twice the measured gap, which is tight enough to
-# reject the historical k(N, beta2) damping factor: reintroducing it moves the z
-# gap from 9.43e-03 to 2.68e-02 at beta2 = 0.999, and from 1.69e-02 to 1.48e+00
-# at beta2 = 0.9.
-Z_GAP_BOUND: float = 2.0e-2
-Z_GAP_BOUND_LOW_BETA2: float = 5.0e-2
-THETA_GAP_BOUND: float = 1.0e-1
+# The bounds are calibrated over 12 independent schedules, not one. A first
+# attempt set them from a single realization and they were promptly falsified the
+# moment make_schedule's seeding was fixed: the theta gap moved 0.0504 -> 0.1174
+# against a 0.10 bound. Measured over seeds 424242..424253:
+#
+#   beta2 = 0.999   z gap 0.0022 .. 0.0204     relative theta gap up to 0.474
+#   beta2 = 0.9     z gap 0.0080 .. 0.0361     relative theta gap up to 0.477
+#
+# WHICH CHECK CATCHES WHAT. Reinstating the historical k(N, beta2) factor gives,
+# over the same 12 schedules:
+#
+#   beta2 = 0.999   with-k z gap DOWN to 0.0060, i.e. it OVERLAPS the correct
+#                   range and can look better than the correct rule. The default
+#                   hyperparameters cannot detect this defect at all.
+#   beta2 = 0.9     with-k z gap never below 0.3121, against a correct-rule
+#                   maximum of 0.0361 -- 8.7x, disjoint.
+#
+# So BETA2_PROBE is not a nice-to-have; it is the only check here that rejects
+# the defect this file used to contain. The beta2 = 0.999 bound is a
+# coarse regression guard, and is deliberately not advertised as more.
+Z_GAP_BOUND: float = 5.0e-2
+Z_GAP_BOUND_LOW_BETA2: float = 1.0e-1
+
+#: Bounded relative to the |theta| scale. The absolute theta gap varies 10x
+#: across schedules (0.025 .. 0.219) because it is dominated by the Polyak
+#: endpoint approximation, which is data-dependent; the ratio is the stable form.
+THETA_REL_GAP_BOUND: float = 0.75
 
 # ----- data models -----
 
@@ -517,16 +537,19 @@ def main() -> int:
         max_abs_gap(macro.z, micro_mean.z),
         Z_GAP_BOUND,
     )
+    theta_scale = series_scale(micro_mean.theta)
     gate.check_le(
-        "macro theta within bound of const-mean micro theta",
-        max_abs_gap(macro.theta, micro_mean.theta),
-        THETA_GAP_BOUND,
+        "macro theta within relative bound of const-mean micro theta",
+        max_abs_gap(macro.theta, micro_mean.theta) / theta_scale
+        if theta_scale > 0.0
+        else 0.0,
+        THETA_REL_GAP_BOUND,
     )
 
-    # beta2 = 0.9 is where an intra-block denominator error shows up. At the
-    # default beta2 = 0.999 the historical k(N, beta2) factor inflates the z gap
-    # by 2.8x; here it inflates it by 87x, so this probe is the one that would
-    # actually stop a revert.
+    # The load-bearing check. See the calibration note at the top of this file:
+    # at the default beta2 = 0.999 the correct and k-damped rules produce
+    # OVERLAPPING z gaps across schedules, so that check cannot reject the
+    # defect. At beta2 = 0.9 they are disjoint by 8.7x.
     macro_lb = run_macro(
         outcomes_by_report,
         lr=lr,

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from math import isclose
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+import numpy as np
+
 from .validate_variance import (
     compute_pentanomial_moments,
     gen_pentanomial_outcomes,
@@ -91,11 +93,26 @@ def make_schedule(  # noqa: PLR0913
         list[int],
     ] = gen_pentanomial_outcomes,
 ) -> tuple[list[int], list[list[int]]]:
-    """Create a list of N per report and the corresponding outcomes with a local RNG."""
+    """Create a list of N per report and the corresponding outcomes with a local RNG.
+
+    Per-report seeds are spawned from ``base_seed`` rather than derived as
+    ``base_seed + r``. Under the old arithmetic form, report ``r`` of the arm
+    seeded ``s`` and report ``r - 1`` of the arm seeded ``s + 1`` received the
+    same seed and therefore the same outcomes: arms meant to be independent
+    shared all but one of their reports, shifted by one position. Measured
+    identical for every report tested. ``SeedSequence`` spawning gives streams
+    with no such relationship, which is what ``validate_spsa_u2`` already did.
+    """
     rng = random.Random(base_seed)  # noqa: S311
     ns = [rng.randint(n_min, n_max) for _ in range(num_reports)]
+    children = np.random.SeedSequence(base_seed).spawn(num_reports)
     outcomes_by_report = [
-        outcome_fn(base_seed + r, ns[r], p5) for r in range(num_reports)
+        outcome_fn(
+            int(children[r].generate_state(1, dtype=np.uint32)[0]),
+            ns[r],
+            p5,
+        )
+        for r in range(num_reports)
     ]
     return ns, outcomes_by_report
 

@@ -10,44 +10,157 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-# Two-sided 95% Student-t quantiles, indexed by degrees of freedom.
-# Small samples are the norm here (8 to 16 seeds), where the normal
-# approximation is noticeably optimistic.
-_T95: dict[int, float] = {
-    1: 12.706,
-    2: 4.303,
-    3: 3.182,
-    4: 2.776,
-    5: 2.571,
-    6: 2.447,
-    7: 2.365,
-    8: 2.306,
-    9: 2.262,
-    10: 2.228,
-    11: 2.201,
-    12: 2.179,
-    13: 2.160,
-    14: 2.145,
-    15: 2.131,
-    16: 2.120,
-    20: 2.086,
-    25: 2.060,
-    30: 2.042,
-}
-_T95_LARGE: float = 1.96
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# --- Student-t distribution ---------------------------------------------------
+#
+# Computed rather than tabulated. The previous lookup table fell back to the
+# normal quantile 1.96 for every df >= 31, which made intervals about 4% too
+# NARROW exactly where a longer seed sweep would put them (true t at df = 31 is
+# 2.0395). Below 30 the table rounded df down and was therefore conservative, so
+# the defect only bit on the side the repository is moving toward.
+#
+# The regularized incomplete beta function is the whole of what is needed, and
+# the continued-fraction form is short, standard and self-contained; it keeps the
+# package free of a SciPy dependency for four numbers.
+
+_BETACF_MAX_ITER: int = 300
+_BETACF_EPS: float = 3.0e-16
+_BETACF_TINY: float = 1.0e-300
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for the incomplete beta function (Lentz's method)."""
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < _BETACF_TINY:
+        d = _BETACF_TINY
+    d = 1.0 / d
+    h = d
+
+    for m in range(1, _BETACF_MAX_ITER + 1):
+        m2 = 2 * m
+        # even step
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < _BETACF_TINY:
+            d = _BETACF_TINY
+        c = 1.0 + aa / c
+        if abs(c) < _BETACF_TINY:
+            c = _BETACF_TINY
+        d = 1.0 / d
+        h *= d * c
+        # odd step
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < _BETACF_TINY:
+            d = _BETACF_TINY
+        c = 1.0 + aa / c
+        if abs(c) < _BETACF_TINY:
+            c = _BETACF_TINY
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < _BETACF_EPS:
+            break
+
+    return h
+
+
+def _betainc(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta function I_x(a, b)."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    front = math.exp(
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + a * math.log(x)
+        + b * math.log1p(-x),
+    )
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return (
+        1.0
+        - math.exp(
+            math.lgamma(a + b)
+            - math.lgamma(a)
+            - math.lgamma(b)
+            + b * math.log1p(-x)
+            + a * math.log(x),
+        )
+        * _betacf(b, a, 1.0 - x)
+        / b
+    )
+
+
+def t_two_sided_p(t: float, df: int) -> float:
+    """Two-sided p-value of a Student-t statistic."""
+    if df <= 0:
+        return math.nan
+    if not math.isfinite(t):
+        return 0.0 if math.isinf(t) else math.nan
+    return _betainc(0.5 * df, 0.5, df / (df + t * t))
+
+
+def t_quantile(alpha: float, df: int) -> float:
+    """Two-sided ``1 - alpha`` Student-t quantile, by bisection on the p-value.
+
+    ``alpha = 0.05`` gives the familiar 95% multiplier. Other levels are needed
+    once a family-wise correction enters, which is why this is not hard-coded to
+    0.05 the way the old table was.
+    """
+    if df <= 0 or not (0.0 < alpha < 1.0):
+        return math.nan
+    lo, hi = 0.0, 1.0
+    while t_two_sided_p(hi, df) > alpha:
+        hi *= 2.0
+        if hi > 1e6:  # noqa: PLR2004
+            return hi
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if t_two_sided_p(mid, df) > alpha:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
 
 
 def t95(df: int) -> float:
     """Return the two-sided 95% t quantile for ``df`` degrees of freedom."""
-    if df <= 0:
-        return math.nan
-    if df in _T95:
-        return _T95[df]
-    keys = sorted(k for k in _T95 if k <= df)
-    return _T95[keys[-1]] if keys and df < 30 else _T95_LARGE  # noqa: PLR2004
+    return t_quantile(0.05, df)
+
+
+def holm_adjusted(p_values: Sequence[float]) -> list[float]:
+    """Holm-Bonferroni step-down adjusted p-values, in the input order.
+
+    Eleven optimizers are compared against one baseline. At 95% per comparison
+    the family-wise error rate under the null is 1 - 0.95**11 = 43%, not 5%, so
+    marking each interval independently overstates the evidence by a lot. Holm
+    controls the family-wise rate, needs no independence assumption, and is
+    uniformly more powerful than plain Bonferroni.
+
+    Compare the returned values against the same 0.05 as before.
+    """
+    m = len(p_values)
+    if m == 0:
+        return []
+    order = sorted(range(m), key=lambda i: p_values[i])
+    adjusted = [0.0] * m
+    running = 0.0
+    for rank, idx in enumerate(order):
+        scaled = (m - rank) * p_values[idx]
+        running = max(running, min(1.0, scaled))
+        adjusted[idx] = running
+    return adjusted
 
 
 @dataclass(frozen=True, slots=True)
