@@ -91,19 +91,6 @@ class Series:
 # ----- core math -----
 
 
-def adam_k(n: int, beta2: float) -> float:
-    """Intra-block geometric mean adjustment for Adam's denominator."""
-    if not (n > 1 and 0.0 < beta2 < 1.0):
-        return 1.0
-    q = math.sqrt(beta2)
-    tiny = 1e-12
-    if abs(1.0 - q) > tiny:
-        k = (1.0 - (beta2 ** (0.5 * n))) / (n * (1.0 - q))
-    else:
-        k = 1.0 - ((n - 1) * 0.25) * (1.0 - beta2)
-    return max(min(k, 1.0), 1e-12)
-
-
 def adam_v_closed_form(  # noqa: PLR0913
     v_prev: float,
     beta2: float,
@@ -136,7 +123,6 @@ def macro_update(  # noqa: PLR0913
     lr: float,
     beta2: float,
     eps: float,
-    use_k: bool = True,
 ) -> Update:
     """Single-report (macro) update that only depends on the block summary.
 
@@ -160,10 +146,13 @@ def macro_update(  # noqa: PLR0913
         eps,
     )
 
-    # fast iterate
+    # fast iterate. No intra-block damping factor: the bias correction applied in
+    # adam_v_closed_form already removes the in-block ramp that a geometric
+    # k(N, beta2) term was meant to correct, so the exact factor is 1 for all N
+    # and beta2. This mirrors simulator/optimizer.py :: SFAdamBlock.step; the
+    # factor that used to sit here carried a dropped minus sign and was clipped
+    # to (0, 1], which made the correct direction unreachable.
     step_phi = (lr * result) / denom_end if denom_end > 0.0 else 0.0
-    if use_k:
-        step_phi *= adam_k(n, beta2)
     z_new = param.z + step_phi * param.c
 
     # surrogate
@@ -324,7 +313,6 @@ def run_macro(  # noqa: PLR0913
             lr=lr,
             beta2=beta2,
             eps=eps,
-            use_k=True,
         )
         # After using current online μ2, update stats with this block
         update_mu2_stats(glob, n_block, result)
