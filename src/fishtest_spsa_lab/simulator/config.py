@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from functools import cached_property
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # --- Constants ---
 ELO_CLIP_RANGE: float = 599.0
@@ -55,6 +58,14 @@ class ParamGroup:
 class SPSAScheduleConfig:
     """SPSA schedule hyperparameters (power-law a_k and c_k)."""
 
+    # Stability offset. Fishtest derives it from the budget as
+    # A = A_ratio * num_games / 2 = A_ratio * num_pairs, with the submission
+    # form defaulting A_ratio to 0.1; the toy and docs/Analysis.md agree. Set
+    # A_ratio to use that form; A is then derived in SPSAConfig.__post_init__.
+    # A fixed absolute A does not scale with the run: at 30k pairs, A = 5000 made
+    # a_k/c_k non-monotonic, rising from 1.70 at k=1 to 2.96 near k=361 before
+    # decaying to 1.50.
+    A_ratio: float | None = 0.1
     A: float = 5000.0
     alpha: float = 0.602
     gamma: float = 0.101
@@ -288,9 +299,20 @@ class SPSAConfig:
     # on the developer model; if False, the initial ranges are kept.
     auto_dev_ranges: bool = True
 
+    # Developer-believed overall Elo curvature. None means "the developer knows
+    # the true scale", which is what the lab did unconditionally until now: c_dev
+    # was derived from k_elo, itself a function of peak_elo, start_elo,
+    # theta_peak and w_true. Moving the true optimum therefore silently moved the
+    # "developer's" perturbation scale -- theta_peak 1000 -> 902 changed c_dev
+    # from 748.33 to 1047.77 -- so the developer was scale-oracular by
+    # construction and only ever wrong about anisotropy. Set this to sweep
+    # scale misspecification, which is a different failure from getting the
+    # per-axis ratios wrong.
+    k_elo_dev: float | None = None
+
     # Internal, derived developer-level perturbation scale. This is
-    # computed in __post_init__ from (w_true, w_dev, c_elo_gap,
-    # c_fraction, k_elo) and used by optimizers as their canonical c_i.
+    # computed in __post_init__ from (w_dev, c_elo_gap, c_fraction,
+    # k_elo_dev) and used by optimizers as their canonical c_i.
     c_dev: np.ndarray | None = field(init=False, repr=False, default=None)
 
     seed: int | None = None  # Random seed
@@ -436,6 +458,54 @@ class SPSAConfig:
         sigma = (np.log(self.game_duration_95th) - mu) / Z_95
         return mu, sigma
 
+    def _warn_on_incoherent_geometry(self) -> None:
+        """Log when the probe scale does not describe a tune.
+
+        Two independent checks, both of which the shipped defaults fail.
+
+        The probe must not cost more Elo than the tune is worth: `c_elo_gap` is
+        the intended Elo loss of a one-axis probe step and `peak_elo -
+        start_elo` is the entire depth of the bowl. The defaults ask each probe
+        to cost 2.0 Elo in a bowl 0.5 Elo deep.
+
+        The probe must also be comparable to the distance it has to cover. The
+        defaults put `c_dev` at 748.33 against a start-to-peak distance of 100,
+        so every probe straddles the whole basin and the quadratic model is
+        evaluated far outside where it holds.
+
+        This warns rather than raises, because the tension is structural and not
+        a typo. `c_j**2 * eps_j = c_elo_gap * w_true_j / w_dev_j`, so
+        `lambda_j = C / (8 * r * c_elo_gap) * (w_dev_j / w_true_j)` -- the
+        convergence budget depends on `c_elo_gap` and the gain, and on nothing
+        else. Shrinking the probe to a physically sensible `c_dev/distance` of
+        0.3 costs 625x the budget: 127 million games against the 60 thousand the
+        sweep runs. Choosing where to sit on that trade-off is a decision for
+        whoever is running the experiment; `design_budget()` reports the cost.
+        """
+        depth = abs(self.peak_elo - self.start_elo)
+        if depth > EPSILON and self.c_elo_gap > 0.5 * depth:
+            logger.warning(
+                "geometry: c_elo_gap=%.4g asks each probe to cost more than half "
+                "the %.4g Elo the whole tune is worth",
+                self.c_elo_gap,
+                depth,
+            )
+
+        if self.c_dev is None:
+            return
+        active = self.w_true > EPSILON
+        if not np.any(active):
+            return
+        distance = np.abs(self.theta_start - self.theta_peak)[active]
+        ratio = self.c_dev[active][distance > EPSILON] / distance[distance > EPSILON]
+        if ratio.size and (ratio.max() > 1.0 or ratio.min() < 0.1):
+            logger.warning(
+                "geometry: c_dev/distance-to-optimum spans %.3g..%.3g, outside "
+                "the sane 0.1..1.0; probes are not sized to the basin they search",
+                float(ratio.min()),
+                float(ratio.max()),
+            )
+
     def design_budget(self) -> DesignBudget | None:
         """Return the game budget this configuration needs to converge.
 
@@ -505,12 +575,13 @@ class SPSAConfig:
             # --- Developer layer: derive c_dev and dev ranges ---
             # w_dev comes from ParamGroup configuration and models the
             # developer's believed anisotropy.
-            if self.k_elo > EPSILON and self.c_elo_gap > 0.0 and self.c_fraction > 0.0:
+            k_dev = float(self.k_elo_dev) if self.k_elo_dev is not None else self.k_elo
+            if k_dev > EPSILON and self.c_elo_gap > 0.0 and self.c_fraction > 0.0:
                 w_dev_vec = self.w_dev
 
                 c_vec = np.zeros_like(sensitivity, dtype=float)
                 valid_mask = w_dev_vec > EPSILON
-                denom = self.k_elo * w_dev_vec[valid_mask]
+                denom = k_dev * w_dev_vec[valid_mask]
                 c_vec_valid = np.sqrt(self.c_elo_gap / denom)
                 c_vec[valid_mask] = c_vec_valid
 
@@ -532,6 +603,12 @@ class SPSAConfig:
                 self.c_dev = c_vec
             else:
                 self.c_dev = None
+
+        # Derive A from the budget when A_ratio is set, matching Fishtest.
+        if self.spsa.A_ratio is not None:
+            self.spsa.A = float(self.spsa.A_ratio) * float(self.num_pairs)
+
+        self._warn_on_incoherent_geometry()
 
         # Provide a sensible default warm-start for the μ2 estimator used by
         # SFAdamBlock, mirroring validate_sf_adam's use of a small symmetric

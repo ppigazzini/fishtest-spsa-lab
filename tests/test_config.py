@@ -1,5 +1,7 @@
 """Smoke tests for SPSAConfig initialization, derived geometry, and sizing."""
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -87,3 +89,52 @@ def test_design_budget_is_none_for_degenerate_geometry() -> None:
         param_groups=[ParamGroup(count=2, theta_start=1.0, theta_peak=1.0, w_true=0.0)],
     )
     assert config.design_budget() is None
+
+
+def test_a_is_derived_from_the_budget() -> None:
+    """Fishtest sets A = A_ratio * num_games/2; an absolute A does not scale."""
+    assert SPSAConfig(num_pairs=30_000).spsa.A == pytest.approx(3000.0)
+    assert SPSAConfig(num_pairs=100_000).spsa.A == pytest.approx(10_000.0)
+    # An explicit A is still honoured when A_ratio is switched off.
+    config = SPSAConfig(num_pairs=30_000)
+    config.spsa.A_ratio = None
+    assert SPSAConfig(num_pairs=30_000, spsa=config.spsa).spsa.A == pytest.approx(
+        3000.0
+    )
+
+
+def test_c_dev_no_longer_depends_on_the_true_optimum() -> None:
+    """B14: the developer was scale-oracular by construction.
+
+    With k_elo_dev pinned, moving theta_peak must not move the developer's
+    perturbation scale. Without it, c_dev swings 282.84 -> 5.66.
+    """
+
+    def c_dev_at(peak: float, k_elo_dev: float | None) -> float:
+        config = SPSAConfig(
+            k_elo_dev=k_elo_dev,
+            param_groups=[
+                ParamGroup(
+                    count=2,
+                    theta_start=900.0,
+                    theta_peak=peak,
+                    w_true=1.0,
+                    w_dev=1.0,
+                ),
+            ],
+        )
+        assert config.c_dev is not None
+        return float(config.c_dev[0])
+
+    pinned = 3.5714285714285714e-06
+    assert c_dev_at(1000.0, pinned) == pytest.approx(c_dev_at(902.0, pinned))
+    assert c_dev_at(1000.0, None) != pytest.approx(c_dev_at(902.0, None))
+
+
+def test_incoherent_geometry_is_reported(caplog: pytest.LogCaptureFixture) -> None:
+    """The shipped defaults fail both checks; they must say so."""
+    with caplog.at_level(logging.WARNING):
+        SPSAConfig()
+    messages = " ".join(record.message for record in caplog.records)
+    assert "the whole tune is worth" in messages
+    assert "c_dev/distance-to-optimum" in messages
