@@ -33,10 +33,17 @@ import numpy as np
 from fishtest_spsa_lab.simulator.config import SPSAConfig
 from fishtest_spsa_lab.vendor.pentamodel.pentamodel import PentaModel
 
+from .gate import Gate, show
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+#: Relative agreement required between the delta-method prediction of the Elo
+#: estimator's standard deviation and the Monte Carlo realisation of the same
+#: quantity. The script computed both and never compared them.
+SIGMA_ELO_REL_TOLERANCE: float = 0.05
 
 OUTCOMES = np.array([-2.0, -1.0, 0.0, 1.0, 2.0], dtype=float)
 POINTS = np.array([0.0, 0.5, 1.0, 1.5, 2.0], dtype=float)
@@ -439,7 +446,7 @@ def _plot_asym_mu(
 
     fig.suptitle(f"Pentanomial asymmetry/mean (optimizer={OPTIMIZER_NAME})")
     plt.tight_layout()
-    plt.show()
+    show(fig)
 
 
 def _plot_coeff_scale(
@@ -472,7 +479,7 @@ def _plot_coeff_scale(
     ax.grid(visible=True)
     fig.suptitle(f"Penta coefficient / gain scale (optimizer={OPTIMIZER_NAME})")
     plt.tight_layout()
-    plt.show()
+    show(fig)
 
 
 def run_single(
@@ -627,8 +634,8 @@ def _log_expected_freq_schedule(
     )
 
 
-def _log_oracle_elo_noise(*, args: Args, totals: np.ndarray) -> None:
-    """Log Elo noise for the oracle score->Elo estimator."""
+def _log_oracle_elo_noise(*, args: Args, totals: np.ndarray) -> float:
+    """Log Elo noise for the oracle score->Elo estimator, and return sigma_Elo."""
     freq_trials = totals.astype(float) / float(args.m)
     score_hats = (freq_trials @ POINTS) / 2.0
     elo_hats = np.array(
@@ -663,6 +670,7 @@ def _log_oracle_elo_noise(*, args: Args, totals: np.ndarray) -> None:
         score_mean,
         float(sigma_elo_from_score),
     )
+    return float(sigma_elo_from_score)
 
 
 def _log_delta_method_theory(
@@ -671,8 +679,8 @@ def _log_delta_method_theory(
     cache: PentaProbCache,
     expected_freq_schedule: np.ndarray | None,
     rep_sizes: list[int] | None,
-) -> None:
-    """Log delta-method theory for the oracle estimator."""
+) -> float | None:
+    """Log delta-method theory for the oracle estimator and return sigma_Elo."""
     if not args.varying:
         elo_true = float(args.start_diff)
         p_true = cache.probs(opponent_elo=-elo_true)
@@ -686,10 +694,10 @@ def _log_delta_method_theory(
             float(sigma_elo),
             float(score_true),
         )
-        return
+        return float(sigma_elo)
 
     if expected_freq_schedule is None or rep_sizes is None or not rep_sizes:
-        return
+        return None
 
     score_sched = _score_from_freq(expected_freq_schedule)
     processed = 0
@@ -714,6 +722,7 @@ def _log_delta_method_theory(
         float(sigma_elo),
         float(score_sched),
     )
+    return float(sigma_elo)
 
 
 def run_monte_carlo(
@@ -722,8 +731,8 @@ def run_monte_carlo(
     cache: PentaProbCache,
     expected_freq_schedule: np.ndarray | None = None,
     rep_sizes: list[int] | None = None,
-) -> None:
-    """Run many trials and print a summary."""
+) -> tuple[float, float | None]:
+    """Run many trials, print a summary, and return (MC sigma_Elo, theory)."""
     rng_master = np.random.default_rng(args.seed)
     totals = _monte_carlo_totals(args=args, rng_master=rng_master, cache=cache)
 
@@ -780,13 +789,14 @@ def run_monte_carlo(
     logger.info("net_wins: mean=%.2f, std=%.2f", net_mean, net_std)
     logger.info("empirical SNR for net_wins across trials: %.3f", float(snr))
 
-    _log_oracle_elo_noise(args=args, totals=totals)
-    _log_delta_method_theory(
+    sigma_elo_mc = _log_oracle_elo_noise(args=args, totals=totals)
+    sigma_elo_theory = _log_delta_method_theory(
         args=args,
         cache=cache,
         expected_freq_schedule=expected_freq_schedule,
         rep_sizes=rep_sizes,
     )
+    return sigma_elo_mc, sigma_elo_theory
 
 
 def parse_args(argv: list[str] | None = None) -> Args:
@@ -875,8 +885,12 @@ def parse_args(argv: list[str] | None = None) -> Args:
     )
 
 
-def main(argv: list[str] | None = None) -> None:
-    """CLI entry point."""
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point; returns a process exit code."""
+    gate = Gate(
+        "validate-penta",
+        "delta-method Elo noise matches the pentanomial Monte Carlo",
+    )
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -899,8 +913,10 @@ def main(argv: list[str] | None = None) -> None:
             cache=cache,
         )
 
+    sigma_mc: float | None = None
+    sigma_theory: float | None = None
     if args.trials > 1:
-        run_monte_carlo(
+        sigma_mc, sigma_theory = run_monte_carlo(
             args,
             cache=cache,
             expected_freq_schedule=expected_freq_schedule,
@@ -916,6 +932,34 @@ def main(argv: list[str] | None = None) -> None:
         log_theory=(args.trials <= 1),
     )
 
+    # The script computed both the delta-method prediction and the Monte Carlo
+    # realisation of the same quantity, logged them a dozen lines apart, and
+    # never compared them. That comparison is the only claim it makes.
+    gate.note("start_diff", args.start_diff)
+    gate.note("pairs per trial", args.m)
+    gate.note("trials", args.trials)
+    gate.note("seed", args.seed)
+    gate.note("mode", "varying -> 0" if args.varying else "fixed")
+
+    if sigma_mc is None or sigma_theory is None:
+        gate.check_le(
+            "delta-method theory compared against Monte Carlo",
+            1.0,
+            0.0,
+            "needs --trials > 1; a single trial cannot estimate a standard deviation",
+        )
+        return gate.report()
+
+    gate.note("sigma_Elo, delta method", sigma_theory)
+    gate.note("sigma_Elo, Monte Carlo", sigma_mc)
+    gate.check_le(
+        "MC sigma_Elo matches delta-method theory",
+        abs(sigma_mc / sigma_theory - 1.0) if sigma_theory else float("inf"),
+        SIGMA_ELO_REL_TOLERANCE,
+        f"MC {sigma_mc:.4f} vs theory {sigma_theory:.4f}",
+    )
+    return gate.report()
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

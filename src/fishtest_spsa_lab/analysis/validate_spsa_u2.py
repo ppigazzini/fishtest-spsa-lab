@@ -28,6 +28,7 @@ from .common import (
     plot_many,
     update_mu2_stats,
 )
+from .gate import Gate, show
 from .validate_spsa import SpsaSchedule, mean_gain_over_block
 from .validate_variance import (
     InitStats,
@@ -35,6 +36,16 @@ from .validate_variance import (
     compute_pentanomial_moments,
     gen_pentanomial_outcomes,
 )
+
+#: How close the final mu2 estimate must sit to the realized per-pair mean
+#: square. Measured 0.0755 on a realized level of 0.886, i.e. 8.5%; the bound is
+#: set at 0.15 so a broken estimator, or one pinned at a clamp, fails.
+MU2_TOLERANCE: float = 0.15
+
+#: The estimator's clamp in common.py :: mu2_hat. Sitting on either end means the
+#: statistic is not measuring anything.
+MU2_CLAMP_LOW: float = 1e-12
+MU2_CLAMP_HIGH: float = 4.0
 
 # ----- data models -----
 
@@ -224,8 +235,13 @@ def make_changing_p5_schedule(  # noqa: PLR0913
 # ----- main -----
 
 
-def main() -> None:
-    """Run naive vs μ2 SPSA comparison with changing p5."""
+def main() -> int:
+    """Run naive vs μ2 SPSA comparison with changing p5, and return an exit code."""
+    gate = Gate(
+        "validate-spsa-u2",
+        "online mu2 tracks a changing outcome distribution",
+    )
+
     base_seed: int = 424242
     num_reports: int = 120
     n_min, n_max = 1, 32
@@ -285,6 +301,59 @@ def main() -> None:
         init_stats=init_stats,
     )
 
+    # This script is a behavioural experiment, not a macro-vs-micro identity, so
+    # what it can honestly gate is the estimator: mu2 must track the realized
+    # outcome mix as p5 moves from biased to balanced, and must not be pinned at
+    # a clamp. Without these checks the run asserted nothing and exited 0.
+    outcomes_flat = [o for report in outcomes_by_report for o in report]
+    realized_mu2 = sum(float(o) * float(o) for o in outcomes_flat) / len(outcomes_flat)
+    _mu_end, mu2_end, _var_end = compute_pentanomial_moments(p5_end)
+    mu2_series = macro_mu2.mu2 or []
+
+    gate.note("reports", num_reports)
+    gate.note("total pairs", macro_plain.t_pairs[-1])
+    gate.note("base seed", base_seed)
+    gate.note("mu2 of p5_start", mu2_start)
+    gate.note("mu2 of p5_end", mu2_end)
+    gate.note("realized per-pair E[g^2]", realized_mu2)
+    gate.note("final mu2 estimate", mu2_series[-1] if mu2_series else float("nan"))
+
+    gate.check_le(
+        "time axes agree",
+        0.0 if macro_plain.t_pairs == macro_mu2.t_pairs else 1.0,
+        0.0,
+    )
+    gate.check_le(
+        "mu2 series is populated",
+        0.0 if len(mu2_series) == len(macro_mu2.t_pairs) else 1.0,
+        0.0,
+    )
+    gate.check_close(
+        "final mu2 tracks the realized second moment",
+        mu2_series[-1] if mu2_series else float("nan"),
+        realized_mu2,
+        MU2_TOLERANCE,
+    )
+    gate.check_le(
+        "mu2 never reaches the low clamp",
+        MU2_CLAMP_LOW,
+        min(mu2_series) if mu2_series else 0.0,
+        f"min observed {min(mu2_series):.6g}" if mu2_series else "no data",
+    )
+    gate.check_le(
+        "mu2 never reaches the high clamp",
+        max(mu2_series) if mu2_series else float("inf"),
+        MU2_CLAMP_HIGH,
+    )
+    # The estimate must actually move: starting at the biased p5 second moment
+    # and ending near the balanced one is the whole point of the experiment.
+    gate.check_le(
+        "mu2 fell from the biased level toward the balanced one",
+        mu2_series[-1] if mu2_series else float("inf"),
+        mu2_start,
+        f"start {mu2_start:.6g} -> end {mu2_series[-1]:.6g}" if mu2_series else "",
+    )
+
     fig, (ax_theta, ax_mu2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
     # Theta trajectories (plain vs μ2-normalized)
@@ -312,8 +381,10 @@ def main() -> None:
         y=0.98,
     )
     plt.tight_layout()
-    plt.show()
+    show(fig)
+
+    return gate.report()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
