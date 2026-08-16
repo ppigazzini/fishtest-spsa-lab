@@ -175,6 +175,9 @@ class AdamConfig:
     beta2: float = 0.999
     eps: float = 1e-8
     warmup_fraction: float = 0.00
+    # Per-pair decay of the per-coordinate accumulator used by "adam-coord".
+    # 0.999 gives a window of about 1000 pairs, comparable to beta2's.
+    beta_coord: float = 0.999
 
 
 @dataclass

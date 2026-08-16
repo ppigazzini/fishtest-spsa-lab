@@ -361,10 +361,26 @@ Consequences for reading results:
     There is none. Any difference is in the scalar normalization or the momentum.
 *   `sf-adam-block` making `v` an explicit global scalar is therefore not an
     approximation of the array form; for this signal the two are the same object.
-*   Giving the family real adaptivity needs a per-coordinate signal, for example
-    accumulating `net_wins * flip` over a window so that coordinates with
-    consistent sign separate from coordinates that are being averaged out. That
-    is an open experiment, not current behaviour.
+*   Giving the family real adaptivity needs a per-coordinate signal. That
+    experiment has now been run, and the answer is **no**.
+
+    `"adam-coord"` accumulates `net_wins * flip` in an EMA decaying per pair and
+    feeds Adam the accumulator, so a coordinate whose sign is consistently
+    reinforced builds a large `|m_coord|` while one being averaged out stays near
+    zero. Its `v` spread is genuinely non-zero, so adaptivity *is* expressible
+    this way. It is also worse:
+
+    | arm | final Elo, 8 paired seeds |
+    |---|---|
+    | `adam` | -0.3302 +- 0.0472 |
+    | `adam-coord` | -1.0192 +- 0.3538 |
+
+    paired difference **-0.6890 +- 0.3654**, separated from zero. Dividing by a
+    per-coordinate `sqrt(v)` that reflects accumulated signal magnitude shrinks
+    the step precisely on the coordinates that are making progress, which is
+    backwards for this problem; the smoothing window also delays the response.
+
+    `"adam-coord"` is kept as a registered negative result, not a recommendation.
 
 `tests/test_adam_family.py` asserts `v.max() == v.min()` so this fact is pinned
 rather than rediscovered by each audit.

@@ -17,9 +17,14 @@ import numpy as np
 import pytest
 
 from fishtest_spsa_lab.simulator.config import SPSAConfig
+from fishtest_spsa_lab.simulator.optimizer import AdamCoord
 from fishtest_spsa_lab.simulator.runner import SpsaRunner
 
 ADAM_FAMILY = ["adam", "adam-block", "sf-adam", "sf-adam-block", "ademamix"]
+
+#: The one entry fed a per-coordinate signal, so it is the one entry whose `v`
+#: is allowed to differ between coordinates. See MS8 item 8f.
+ADAPTIVE = "adam-coord"
 
 #: Attribute holding the second moment, per optimizer.
 SECOND_MOMENT = {"ademamix": "nu"}
@@ -39,9 +44,26 @@ def test_second_moment_is_coordinate_uniform(name: str) -> None:
     spread = float(second_moment.max() - second_moment.min())
     assert spread == 0.0, (
         f"{name}: v spread {spread:.3e} is non-zero. If a per-coordinate signal "
-        f"was introduced deliberately, update docs/Simulator.md section 2.6, "
+        f"was introduced deliberately, update docs/Simulator.md section 2.8, "
         f"which states the Adam family has no per-parameter adaptivity here."
     )
+
+
+def test_adam_coord_actually_differentiates() -> None:
+    """The exception, and the control that proves the rule is about the signal.
+
+    `adam-coord` differs from `adam` only in being fed an accumulated
+    per-coordinate signal instead of `scalar * flip`. Its `v` spread must be
+    non-zero, or the accumulator is not doing what it claims.
+    """
+    config = SPSAConfig(num_pairs=1800, batch_size=36, seed=3, optimizer=ADAPTIVE)
+    runner = SpsaRunner(config)
+    runner.run()
+
+    optimizer = runner.optimizer
+    assert isinstance(optimizer, AdamCoord)
+    second_moment = np.asarray(optimizer.v, dtype=float)
+    assert float(second_moment.max() - second_moment.min()) > 0.0
 
 
 def test_the_reason_is_the_rademacher_square() -> None:

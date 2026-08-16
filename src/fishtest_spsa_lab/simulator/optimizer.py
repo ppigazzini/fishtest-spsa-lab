@@ -977,6 +977,69 @@ class AcceleratedSPSA(SPSA):
         self._clip_theta()
 
 
+class AdamCoord(Adam):
+    """Adam over a per-coordinate SPSA signal, so `v` can actually differentiate.
+
+    MS8 item 8f. Every other Adam-family entry is fed ``grad = scalar * flip``
+    with ``flip`` in ``{-1, +1}``, so ``grad**2 == scalar**2`` in every
+    coordinate and ``v`` is uniform by construction: the family reduces to
+    normalized-momentum SGD with one global step size (docs/Simulator.md 2.8).
+
+    The missing ingredient is a signal that differs between coordinates. This
+    accumulates the SPSA increments ``net_wins * flip`` in an EMA and feeds Adam
+    the *accumulator*, not the instantaneous term. A coordinate whose sign is
+    consistently reinforced across reports builds a large ``|m_coord|``; one that
+    is being averaged out stays near zero. Squaring that gives a genuinely
+    per-coordinate second moment.
+
+    This is an experiment, not a recommendation. It answers "can the Adam family
+    express adaptivity here at all", which had never been tested because the
+    degeneracy was undocumented until 17ff331.
+    """
+
+    def __init__(self, config: SPSAConfig) -> None:
+        """Initialize the per-coordinate accumulator alongside Adam's state."""
+        super().__init__(config)
+        self.g_coord = np.zeros_like(self.theta)
+
+    def step(
+        self,
+        iter_local: int,
+        net_wins: float,
+        flip: np.ndarray,
+        c_k: np.ndarray,  # noqa: ARG002 - kept for API symmetry
+        batch_size_pairs: int,
+    ) -> None:
+        """Perform one Adam update over the accumulated per-coordinate signal."""
+        lr = _apply_linear_warmup(
+            float(self.config.adam.lr),
+            iter_local=iter_local,
+            num_pairs=self.config.num_pairs,
+            warmup_fraction=float(self.config.adam.warmup_fraction),
+        )
+
+        beta1 = self.config.adam.beta1
+        beta2 = self.config.adam.beta2
+        eps = self.config.adam.eps
+
+        n = int(batch_size_pairs)
+        if n <= 0:
+            return
+
+        # The accumulator decays per PAIR, so a report of n pairs decays by
+        # beta_coord**n. Without this the window would depend on how games were
+        # chunked into reports rather than on how many were played.
+        beta_coord = float(self.config.adam.beta_coord)
+        decay = beta_coord**n
+        per_pair = -float(net_wins) / float(n)
+        self.g_coord = decay * self.g_coord + (1.0 - decay) * (per_pair * flip)
+
+        for _ in range(n):
+            self._adam_step_vector(self.g_coord, lr, beta1, beta2, eps)
+
+        self._clip_theta()
+
+
 class AdEMAMix(Optimizer):
     """Full AdEMAMix optimizer on top of SPSA gradients."""
 
@@ -1059,6 +1122,7 @@ __all__ = [
     "AdEMAMix",
     "Adam",
     "AdamBlock",
+    "AdamCoord",
     "Optimizer",
     "PentaStatsMixin",
     "SFAdam",
@@ -1082,5 +1146,6 @@ OPTIMIZER_REGISTRY: dict[str, type[Optimizer]] = {
     "sf-adam-block": SFAdamBlock,
     "adam": Adam,
     "adam-block": AdamBlock,
+    "adam-coord": AdamCoord,
     "ademamix": AdEMAMix,
 }
