@@ -7,6 +7,9 @@ import math
 import pytest
 
 from fishtest_spsa_lab.analysis.design import (
+    ELO_C,
+    adiabatic_ratio,
+    annealed_noise_ball,
     chi2_ppf,
     curvature_from_elo,
     design_r,
@@ -16,6 +19,7 @@ from fishtest_spsa_lab.analysis.design import (
     main,
     noise_ball_elo,
     quantile_elo,
+    relaxation_pairs,
 )
 
 #: Two-sided 95% chi-square quantiles from published tables.
@@ -215,3 +219,55 @@ def test_the_c_end_comparison_runs(capsys: pytest.CaptureFixture) -> None:
 def test_mismatched_ranges_and_elos_are_rejected() -> None:
     """A silent zip truncation would produce a plausible, wrong table."""
     assert main(["--ranges", "100", "40", "--elos", "2.0"]) == 1
+
+
+def test_a_constant_gain_relaxes_to_the_closed_form_floor() -> None:
+    """The correctness check for the annealed integrator.
+
+    With a constant gain the moving target is stationary, so the tracked floor
+    must converge to docs/Noise_ball.md's fixed-gain result exactly.
+    """
+    n, sigma2, mu, r = 12, 0.2274, 2.3333, 0.002
+    steps = int(20 * relaxation_pairs(r, mu))
+    tracked = annealed_noise_ball([r] * steps, n, sigma2, mu)
+    assert tracked[-1] == pytest.approx(-noise_ball_elo(r, n, sigma2), rel=1e-6)
+
+
+def test_a_decaying_gain_tracks_its_shrinking_floor_once_adiabatic() -> None:
+    """8b: the floor is a moving target, and the condition for treating it as one.
+
+    Early in the run the schedule outruns the process and the fixed-gain formula
+    does not apply pointwise; once the adiabatic ratio falls well below 1 the
+    tracked floor sits on the instantaneous one.
+    """
+    n, sigma2, mu, r_end = 12, 0.2274, 2.3333, 0.002
+    total = 600_000
+    a_stability, alpha, gamma = 0.1 * total, 0.602, 0.101
+    norm = (total ** (2 * gamma)) / ((a_stability + total) ** alpha)
+    gains = [
+        r_end * ((k ** (2 * gamma)) / ((a_stability + k) ** alpha)) / norm
+        for k in range(1, total + 1)
+    ]
+
+    tracked = annealed_noise_ball(gains, n, sigma2, mu)
+    instantaneous = [-noise_ball_elo(g, n, sigma2) for g in gains]
+
+    # Early: not adiabatic, and the process lags far behind.
+    assert adiabatic_ratio(gains, mu, 5_000) > 0.5
+    assert tracked[5_000] / instantaneous[5_000] < 0.3
+
+    # Late: adiabatic, and tracking to within a few percent.
+    assert adiabatic_ratio(gains, mu, 200_000) < 0.1
+    assert tracked[200_000] / instantaneous[200_000] == pytest.approx(1.0, abs=0.1)
+
+    # And the floor genuinely shrinks over the tail, which is the whole point:
+    # a decaying gain lowers the target it is relaxing toward.
+    assert instantaneous[-1] < instantaneous[50_000]
+
+
+def test_relaxation_time_is_the_documented_constant() -> None:
+    """lambda = C / (2 * r * mu), from spsa_simul's Appendix C."""
+    assert relaxation_pairs(0.002, 2.3333) == pytest.approx(
+        ELO_C / (2 * 0.002 * 2.3333), rel=1e-12
+    )
+    assert relaxation_pairs(0.0, 1.0) == math.inf

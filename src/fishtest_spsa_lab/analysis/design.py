@@ -39,10 +39,16 @@ from __future__ import annotations
 
 import argparse
 import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 __all__ = [
     "ELO_C",
     "FOLKLORE_C_DIVISOR",
+    "adiabatic_ratio",
+    "annealed_noise_ball",
     "chi2_ppf",
     "curvature_from_elo",
     "design_r",
@@ -52,6 +58,7 @@ __all__ = [
     "main",
     "noise_ball_elo",
     "quantile_elo",
+    "relaxation_pairs",
 ]
 
 #: The folklore rule for a Fishtest submission row: c_end = range / 20.
@@ -210,6 +217,81 @@ def gauss_newton_c(
     if param_range <= 0.0 or elo_over_range <= 0.0:
         return math.nan
     return scale * param_range / math.sqrt(elo_over_range)
+
+
+def relaxation_pairs(r: float, mu: float) -> float:
+    """Pairs for the mean iterate to relax by 1/e, the time constant ``C/(2*r*mu)``.
+
+    ``mu`` is ``E(c c^T) Hess(e)`` -- under the Gauss-Newton condition a single
+    scalar, which is the case this is written for.
+    """
+    if r <= 0.0 or mu <= 0.0:
+        return math.inf
+    return ELO_C / (2.0 * r * mu)
+
+
+def annealed_noise_ball(
+    gains: Sequence[float],
+    n_active: int,
+    sigma2: float,
+    mu: float,
+    initial_drop: float = 0.0,
+) -> list[float]:
+    """Track the noise floor under a *decaying* gain schedule.
+
+    ``docs/Noise_ball.md`` derives the stationary floor at a FIXED gain,
+    ``D(r) = (r/8)*C*n*sigma2``. Under a schedule the floor is a moving target:
+    the process relaxes toward ``D(r_k)`` with time constant
+    ``lambda_k = C/(2*r_k*mu)``, so
+
+    ```text
+    dD/dk = (D(r_k) - D) / lambda_k
+    ```
+
+    This integrates that. It is the quantitative form of the correction to
+    ``spsa_simul``'s "decay only buys unreachable asymptotic convergence": the
+    floor a decaying schedule relaxes toward shrinks with the iterations, so
+    decay pays on any horizon long enough to track it -- and the second clause is
+    what :func:`adiabatic_ratio` measures.
+
+    Returns the drop after each step, as a positive Elo magnitude.
+    """
+    drop = float(initial_drop)
+    out: list[float] = []
+    for r in gains:
+        target = -noise_ball_elo(r, n_active, sigma2)
+        lam = relaxation_pairs(r, mu)
+        if math.isfinite(lam) and lam > 0.0:
+            drop += (target - drop) / lam
+        out.append(drop)
+    return out
+
+
+def adiabatic_ratio(gains: Sequence[float], mu: float, index: int) -> float:
+    """How fast the gain moves relative to how fast the process can follow it.
+
+    The floor is only a floor if the schedule changes slowly compared with the
+    relaxation time. With ``lambda_k = C/(2*r_k*mu)``,
+
+    ```text
+    adiabatic ratio = |d ln r / dk| * lambda_k
+    ```
+
+    Well below 1, the process sits at the instantaneous floor ``D(r_k)`` and
+    ``Noise_ball.md``'s fixed-gain formula applies pointwise. Near or above 1, it
+    lags and the fixed-gain formula overstates how tight the ball is.
+
+    For the Fishtest schedule ``r_k`` proportional to ``k**(2*gamma)/(A+k)**alpha``,
+    ``d ln r/dk -> (2*gamma - alpha)/k`` at large k, which is -0.4/k at the
+    defaults -- so the condition is ``k >> 0.4 * lambda_k``.
+    """
+    if index <= 0 or index >= len(gains) - 1:
+        return math.nan
+    r = gains[index]
+    dr = (gains[index + 1] - gains[index - 1]) / 2.0
+    if r <= 0.0:
+        return math.nan
+    return abs(dr / r) * relaxation_pairs(r, mu)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
