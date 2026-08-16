@@ -46,6 +46,7 @@ plot-spsa-schedule = "fishtest_spsa_lab.analysis.plot_spsa_schedule:main"
 rademacher = "fishtest_spsa_lab.analysis.rademacher:main"
 spsa-gradient = "fishtest_spsa_lab.analysis.spsa_gradient:main"
 spsa-design = "fishtest_spsa_lab.analysis.design:main"
+spsa-crossover = "fishtest_spsa_lab.analysis.crossover:main"
 
 [tool.ruff]
 # Only vendored third-party code is excluded. docs/ and __DEV/ stay in scope so

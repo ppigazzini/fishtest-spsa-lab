@@ -271,3 +271,49 @@ def test_relaxation_time_is_the_documented_constant() -> None:
         ELO_C / (2 * 0.002 * 2.3333), rel=1e-12
     )
     assert relaxation_pairs(0.0, 1.0) == math.inf
+
+
+def test_the_constant_arm_is_a_constant_gain_spsa_step() -> None:
+    """The crossover experiment's control arm must be what it claims.
+
+    `sf-sgd` with beta = 0 exports z directly, so the update reduces to
+    theta += lr * c * net_wins * flip -- a constant-gain SPSA step. If that
+    stopped being true the comparison would be measuring something else.
+    """
+    import numpy as np
+
+    from fishtest_spsa_lab.simulator.config import SPSAConfig
+    from fishtest_spsa_lab.simulator.optimizer import SFSGD
+
+    config = SPSAConfig(num_pairs=1000, batch_size=10)
+    config.sf_sgd.beta = 0.0
+    config.sf_sgd.lr = config.spsa.r_end
+
+    optimizer = SFSGD(config)
+    before = optimizer.get_params()
+    flip = np.ones(config.num_params)
+    c_k = optimizer.get_perturbation_scale(1)
+    optimizer.step(1, 5.0, flip, c_k, 10)
+
+    expected = before + config.spsa.r_end * c_k * 5.0 * flip
+    assert np.allclose(optimizer.get_params(), expected, rtol=1e-12)
+
+
+def test_the_two_crossover_arms_share_their_final_gain() -> None:
+    """Same gain at the horizon, so the comparison is of shape, not level."""
+    from fishtest_spsa_lab.simulator.config import SPSAConfig
+    from fishtest_spsa_lab.simulator.optimizer import SPSA
+
+    num_pairs = 120_000
+    config = SPSAConfig(num_pairs=num_pairs, batch_size=36)
+    spsa = SPSA(config)
+
+    # Decaying arm's gain a_k/c_k at the horizon.
+    sched = config.spsa
+    a_k = spsa.a_base / ((sched.A + num_pairs) ** sched.alpha)
+    c_k = spsa.get_perturbation_scale(num_pairs)
+    final_gain = a_k / c_k
+
+    # Constant arm's gain is lr * c, with lr = r_end.
+    constant_gain = config.spsa.r_end * c_k
+    assert float(final_gain[0]) == pytest.approx(float(constant_gain[0]), rel=1e-9)
