@@ -30,9 +30,21 @@ from .common import (
     build_sequence,
     end_adjacent_shuffle,
     make_schedule,
+    max_abs_gap,
     plot_many,
-    series_allclose,
+    series_scale,
 )
+from .gate import Gate, show
+
+#: The macro const-mean path replays the same N textbook steps the micro path
+#: takes, so that equality is exact and is asserted at float tolerance.
+TOLERANCE: float = 1e-12
+
+#: The block path is an approximation: it freezes the denominator at v_N for all
+#: N micro-steps. Measured gap 8.12e-02 on a theta scale of 3.1415. The bound
+#: rejects the uncorrected closed form this file shipped until now, whose gap was
+#: 1.74e+00 -- 21x worse, and 4.29x on the very first block.
+BLOCK_GAP_BOUND: float = 1.5e-1
 
 # ----- data models -----
 
@@ -128,15 +140,19 @@ def adam_block_update(  # noqa: PLR0913
     beta1: float,
     beta2: float,
     eps: float,
-) -> AdamState:
+    t_start: int,
+) -> tuple[AdamState, int]:
     """Approximate N-step classic Adam with constant grad using a block update.
 
-    m_N and v_N are updated in closed form for constant g. The θ step
-    approximates the ladder by freezing the denominator at v_N and summing
-    the exact m_i ladder.
+    Mirrors ``simulator/optimizer.py :: AdamBlock.step``. m_N and v_N are updated
+    in closed form for constant g; the theta step sums the exact m_i ladder and
+    freezes the denominator at v_N, and both moments are bias-corrected at the
+    end-of-block step index.
+
+    Returns the new state and the advanced step index.
     """
     if n <= 0:
-        return state
+        return state, t_start
 
     theta0 = state.theta
     m0 = state.m
@@ -146,11 +162,6 @@ def adam_block_update(  # noqa: PLR0913
     beta1_n = beta1**n
     beta2_n = beta2**n
 
-    if g == 0.0:
-        m_n = beta1_n * m0
-        v_n = beta2_n * v0
-        return AdamState(theta=theta0, m=m_n, v=v_n)
-
     m_n = beta1_n * m0 + (1.0 - beta1_n) * g
     v_n = beta2_n * v0 + (1.0 - beta2_n) * (g * g)
 
@@ -158,11 +169,21 @@ def adam_block_update(  # noqa: PLR0913
 
     sum_m = m0 * s_beta1 + g * (n - s_beta1)
 
-    denom = math.sqrt(v_n) + eps
-    step = sum_m / denom if denom > 0.0 else 0.0
+    # Bias correction at the end-of-block index. Its absence, not the frozen
+    # denominator, was the dominant error: 1bea8b1 measured the uncorrected form
+    # overshooting N textbook micro-steps by 4.0x on the first block. That commit
+    # fixed simulator/optimizer.py and left this file on the old rule, so the
+    # gate for AdamBlock validated an update the lab no longer ships.
+    t_end = t_start + n
+    t1 = float(t_end)
+    bc1 = (1.0 - beta1**t1) if 0.0 <= beta1 < 1.0 else 1.0
+    bc2 = (1.0 - beta2**t1) if 0.0 <= beta2 < 1.0 else 1.0
+
+    denom = math.sqrt(v_n / bc2) + eps
+    step = (sum_m / bc1) / denom if denom > 0.0 else 0.0
     theta_n = theta0 - lr * step
 
-    return AdamState(theta=theta_n, m=m_n, v=v_n)
+    return AdamState(theta=theta_n, m=m_n, v=v_n), t_end
 
 
 # ----- runners -----
@@ -306,6 +327,7 @@ def run_macro_block_adam(
     t_pairs: list[int] = [0]
     thetas: list[float] = [state.theta]
 
+    step_idx = 0
     total_pairs = 0
     for outs in outcomes_by_report:
         n = len(outs)
@@ -314,7 +336,7 @@ def run_macro_block_adam(
         s = float(sum(outs))
         g = s / n
 
-        state = adam_block_update(
+        state, step_idx = adam_block_update(
             state,
             grad=g,
             n=n,
@@ -322,6 +344,7 @@ def run_macro_block_adam(
             beta1=beta1,
             beta2=beta2,
             eps=eps,
+            t_start=step_idx,
         )
         total_pairs += n
         t_pairs.append(total_pairs)
@@ -333,8 +356,13 @@ def run_macro_block_adam(
 # ----- main -----
 
 
-def main() -> None:
-    """Run the main Adam validation simulation."""
+def main() -> int:
+    """Run the Adam macro-vs-micro validation and return an exit code."""
+    gate = Gate(
+        "validate-adam",
+        "Adam: macro const-mean == micro const-mean; block macro bounded",
+    )
+
     # hyperparameters (textbook defaults, tweak as desired)
     lr: float = 0.01
     beta1: float = 0.9
@@ -392,16 +420,34 @@ def main() -> None:
         eps=eps,
     )
 
-    # Sanity: macro const-mean == micro const-mean exactly (by construction)
-    if micro_mean.t_pairs != macro_const.t_pairs:
-        msg = "time axes differ between micro and macro const-mean"
-        raise RuntimeError(msg)
-    if not series_allclose(
-        micro_mean.theta,
-        macro_const.theta,
-    ):
-        msg = "macro const-mean != micro const-mean (orig)"
-        raise RuntimeError(msg)
+    gate.note("reports", num_reports)
+    gate.note("pairs per report", f"{n_min}..{n_max}")
+    gate.note("total pairs", micro_mean.t_pairs[-1])
+    gate.note("base seed", base_seed)
+    gate.note("lr / beta1 / beta2", f"{lr:g} / {beta1:g} / {beta2:g}")
+    gate.note("theta scale", series_scale(micro_mean.theta))
+    gate.note(
+        "micro real vs micro const-mean",
+        max_abs_gap(micro_real.theta, micro_mean.theta),
+    )
+
+    gate.check_le(
+        "time axes agree (original)",
+        0.0
+        if micro_mean.t_pairs == macro_const.t_pairs == macro_block.t_pairs
+        else 1.0,
+        0.0,
+    )
+    gate.check_le(
+        "macro const-mean == micro const-mean",
+        max_abs_gap(macro_const.theta, micro_mean.theta),
+        TOLERANCE,
+    )
+    gate.check_le(
+        "block macro within bound of micro const-mean",
+        max_abs_gap(macro_block.theta, micro_mean.theta),
+        BLOCK_GAP_BOUND,
+    )
 
     # Figure 1: original schedule
     fig1, ax1 = plt.subplots(1, 1, figsize=(10, 6), sharex=True)
@@ -431,7 +477,7 @@ def main() -> None:
     ax1.set_xlabel("pairs")
     fig1.suptitle("Adam — single schedule (theta)", y=0.98)
     plt.tight_layout()
-    plt.show()
+    show(fig1)
 
     # Shuffled order (same end-adjacent scheme as other scripts)
     p_swap = 4.0 / 5.0
@@ -471,15 +517,23 @@ def main() -> None:
         eps=eps,
     )
 
-    if micro_mean2.t_pairs != macro_const2.t_pairs:
-        msg = "time axes differ between micro and macro const-mean (shuf)"
-        raise RuntimeError(msg)
-    if not series_allclose(
-        micro_mean2.theta,
-        macro_const2.theta,
-    ):
-        msg = "macro const-mean != micro const-mean (shuf)"
-        raise RuntimeError(msg)
+    gate.check_le(
+        "time axes agree (shuffled)",
+        0.0
+        if micro_mean2.t_pairs == macro_const2.t_pairs == macro_block2.t_pairs
+        else 1.0,
+        0.0,
+    )
+    gate.check_le(
+        "macro const-mean == micro const-mean (shuffled)",
+        max_abs_gap(macro_const2.theta, micro_mean2.theta),
+        TOLERANCE,
+    )
+    gate.check_le(
+        "block macro within bound of micro const-mean (shuffled)",
+        max_abs_gap(macro_block2.theta, micro_mean2.theta),
+        BLOCK_GAP_BOUND,
+    )
 
     fig2, ax2 = plt.subplots(1, 1, figsize=(10, 6), sharex=True)
     plot_many(
@@ -544,8 +598,10 @@ def main() -> None:
         y=0.98,
     )
     plt.tight_layout()
-    plt.show()
+    show(fig2)
+
+    return gate.report()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
