@@ -12,3 +12,10 @@ venv/
 .DS_Store
 .vs/
 .vscode/
+
+# Local by design, and never tracked: __DEV/ holds the dated findings reports,
+# __fishtest is a symlink to a read-only clone of the real server. Both showed
+# up staged after a `git add -A`, and the pre-commit hooks rewrote three
+# historical reports before the commit was stopped.
+__DEV/
+__fishtest
