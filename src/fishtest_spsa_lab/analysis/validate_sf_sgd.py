@@ -26,11 +26,17 @@ from .common import (
     build_sequence,
     end_adjacent_shuffle,
     make_schedule,
+    max_abs_gap,
     plot_many,
     reconstruct_x_prev,
-    series_allclose,
+    series_scale,
     sf_weighting_update,
 )
+from .gate import Gate, show
+
+#: Tolerance for the macro-vs-micro anchor. The triangular Polyak factor makes
+#: this equality exact in real arithmetic; the measured gap is float noise.
+TOLERANCE: float = 1e-12
 
 # ----- data models -----
 
@@ -210,8 +216,19 @@ def run_micro(
 # ----- main -----
 
 
-def main() -> None:
-    """Run the main simulation."""
+def _axis_gap(*series: Series) -> float:
+    """Return 0 when every series shares one time axis, 1 otherwise."""
+    first = series[0].t_pairs
+    return 0.0 if all(sr.t_pairs == first for sr in series[1:]) else 1.0
+
+
+def main() -> int:
+    """Run the SF-SGD macro-vs-micro validation and return an exit code."""
+    gate = Gate(
+        "validate-sf-sgd-block",
+        "schedule-free SGD: triangular block macro == const-mean micro",
+    )
+
     # hyper
     lr: float = 0.1
     beta: float = 0.9
@@ -245,19 +262,30 @@ def main() -> None:
     micro_mean = run_micro(seqs_mean, lr=lr, beta=beta, c=c)
     micro_real = run_micro(seqs_real, lr=lr, beta=beta, c=c)
 
-    # sanity: macro == micro_mean exactly (by construction)
-    assert macro.t_pairs == micro_mean.t_pairs == micro_real.t_pairs, (  # noqa: S101
-        "time axes differ"
+    gate.note("reports", num_reports)
+    gate.note("pairs per report", f"{n_min}..{n_max}")
+    gate.note("total pairs", macro.t_pairs[-1])
+    gate.note("base seed", base_seed)
+    gate.note("lr / beta / c", f"{lr:g} / {beta:g} / {c:g}")
+    gate.note("x scale", series_scale(micro_mean.x))
+
+    # All three states must match, not just the exported one. theta is a blend
+    # of z and x, so checking theta alone would hide compensating errors.
+    gate.check_le(
+        "time axes agree (original)",
+        _axis_gap(macro, micro_mean, micro_real),
+        0.0,
     )
-    assert series_allclose(macro.x, micro_mean.x), (  # noqa: S101
-        "macro x != micro const-mean x"
-    )
-    assert series_allclose(macro.z, micro_mean.z), (  # noqa: S101
-        "macro z != micro const-mean z"
-    )
-    assert series_allclose(macro.theta, micro_mean.theta), (  # noqa: S101
-        "macro theta != micro const-mean theta"
-    )
+    for label, a, b in (
+        ("x", macro.x, micro_mean.x),
+        ("z", macro.z, micro_mean.z),
+        ("theta", macro.theta, micro_mean.theta),
+    ):
+        gate.check_le(
+            f"block macro {label} == const-mean micro {label}",
+            max_abs_gap(a, b),
+            TOLERANCE,
+        )
 
     # Figure 1: only the original schedule (parity with Adam)
     fig1, axs1 = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
@@ -318,7 +346,7 @@ def main() -> None:
     axs1[-1].set_xlabel("pairs")
     fig1.suptitle("Schedule-free SGD — single schedule (x, z, theta)", y=0.98)
     plt.tight_layout()
-    plt.show()
+    show(fig1)
 
     # custom shuffled order: single backward sweep with p per adjacent swap
     p_swap = 4.0 / 5.0
@@ -339,9 +367,21 @@ def main() -> None:
     micro_mean2 = run_micro(seqs_mean_shuf, lr=lr, beta=beta, c=c)
     micro_real2 = run_micro(seqs_real_shuf, lr=lr, beta=beta, c=c)
 
-    assert macro2.t_pairs == micro_mean2.t_pairs == micro_real2.t_pairs, (  # noqa: S101
-        "time axes differ (shuffled)"
+    gate.check_le(
+        "time axes agree (shuffled)",
+        _axis_gap(macro2, micro_mean2, micro_real2),
+        0.0,
     )
+    for label, a, b in (
+        ("x", macro2.x, micro_mean2.x),
+        ("z", macro2.z, micro_mean2.z),
+        ("theta", macro2.theta, micro_mean2.theta),
+    ):
+        gate.check_le(
+            f"block macro {label} == const-mean micro {label} (shuffled)",
+            max_abs_gap(a, b),
+            TOLERANCE,
+        )
 
     # Figure 2: original vs shuffled overlay (parity with Adam)
     fig2, axs2 = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
@@ -472,8 +512,10 @@ def main() -> None:
         y=0.98,
     )
     plt.tight_layout()
-    plt.show()
+    show(fig2)
+
+    return gate.report()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

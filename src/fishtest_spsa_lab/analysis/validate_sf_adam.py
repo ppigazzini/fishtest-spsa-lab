@@ -26,16 +26,35 @@ from .common import (
     Line,
     end_adjacent_shuffle,
     make_schedule,
+    max_abs_gap,
     mu2_hat,
     plot_many,
     reconstruct_x_prev,
+    series_scale,
     sf_weighting_update,
     update_mu2_stats,
 )
+from .gate import Gate, show
 from .validate_variance import (
     InitStats,
     compute_init_stats_from_prior,
 )
+
+# Unlike SPSA and SF-SGD, schedule-free Adam is NOT an exact macro-vs-micro
+# identity. The macro path applies one denominator, taken at the end of the
+# block, to all N micro-steps; the micro path re-derives it each step. Adam's
+# bias correction cancels that ramp exactly only while the second-moment level
+# is constant, and the online mu2 estimate moves from block to block, so a
+# residual remains. SPSA_macro_micro.md previously called this equality "exact";
+# it is not, and these bounds are what it actually is.
+#
+# The bounds are set at roughly twice the measured gap, which is tight enough to
+# reject the historical k(N, beta2) damping factor: reintroducing it moves the z
+# gap from 9.43e-03 to 2.68e-02 at beta2 = 0.999, and from 1.69e-02 to 1.48e+00
+# at beta2 = 0.9.
+Z_GAP_BOUND: float = 2.0e-2
+Z_GAP_BOUND_LOW_BETA2: float = 5.0e-2
+THETA_GAP_BOUND: float = 1.0e-1
 
 # ----- data models -----
 
@@ -374,9 +393,23 @@ def run_micro(  # noqa: PLR0913
 
 # ----- main -----
 
+#: A second beta2 at which the intra-block denominator is far more sensitive.
+BETA2_PROBE: float = 0.9
 
-def main() -> None:
-    """Run the main simulation."""
+
+def _axis_gap(*series: Series) -> float:
+    """Return 0 when every series shares one time axis, 1 otherwise."""
+    first = series[0].t_pairs
+    return 0.0 if all(sr.t_pairs == first for sr in series[1:]) else 1.0
+
+
+def main() -> int:
+    """Run the SF-Adam macro-vs-micro validation and return an exit code."""
+    gate = Gate(
+        "validate-sf-adam-block",
+        "schedule-free Adam: block macro vs const-mean micro (bounded, not exact)",
+    )
+
     # hyper
     lr: float = 0.1
     beta1: float = 0.9
@@ -466,6 +499,62 @@ def main() -> None:
         c=c,
     )
 
+    gate.note("reports", num_reports)
+    gate.note("pairs per report", f"{n_min}..{n_max}")
+    gate.note("total pairs", macro.t_pairs[-1])
+    gate.note("base seed", base_seed)
+    gate.note("lr / beta1 / beta2", f"{lr:g} / {beta1:g} / {beta2:g}")
+    gate.note("z scale", series_scale(micro_mean.z))
+    gate.note("theta gap (original)", max_abs_gap(macro.theta, micro_mean.theta))
+
+    gate.check_le(
+        "time axes agree (original)",
+        _axis_gap(macro, micro_mean, micro_real),
+        0.0,
+    )
+    gate.check_le(
+        "macro z within bound of const-mean micro z",
+        max_abs_gap(macro.z, micro_mean.z),
+        Z_GAP_BOUND,
+    )
+    gate.check_le(
+        "macro theta within bound of const-mean micro theta",
+        max_abs_gap(macro.theta, micro_mean.theta),
+        THETA_GAP_BOUND,
+    )
+
+    # beta2 = 0.9 is where an intra-block denominator error shows up. At the
+    # default beta2 = 0.999 the historical k(N, beta2) factor inflates the z gap
+    # by 2.8x; here it inflates it by 87x, so this probe is the one that would
+    # actually stop a revert.
+    macro_lb = run_macro(
+        outcomes_by_report,
+        lr=lr,
+        beta1=beta1,
+        beta2=BETA2_PROBE,
+        eps=eps,
+        c=c,
+        mu2_init=mu2_init,
+        init_stats=init_stats,
+    )
+    micro_lb = run_micro(
+        build_const_mean_online_sequences(
+            outcomes_by_report,
+            mu2_init,
+            init_stats=init_stats,
+        ),
+        lr=lr,
+        beta1=beta1,
+        beta2=BETA2_PROBE,
+        eps=eps,
+        c=c,
+    )
+    gate.check_le(
+        f"macro z within bound of micro z at beta2={BETA2_PROBE:g}",
+        max_abs_gap(macro_lb.z, micro_lb.z),
+        Z_GAP_BOUND_LOW_BETA2,
+    )
+
     # Figure 1: only the original schedule
     fig1, axs1 = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
     plot_many(
@@ -526,7 +615,7 @@ def main() -> None:
         y=0.98,
     )
     plt.tight_layout()
-    plt.show()
+    show(fig1)
 
     # Figure 2: original vs shuffled overlay
     p_swap = 4.0 / 5.0
@@ -572,8 +661,15 @@ def main() -> None:
         c=c,
     )
 
-    assert macro2.t_pairs == micro_mean2.t_pairs == micro_real2.t_pairs, (  # noqa: S101
-        "time axes differ (shuffled)"
+    gate.check_le(
+        "time axes agree (shuffled)",
+        _axis_gap(macro2, micro_mean2, micro_real2),
+        0.0,
+    )
+    gate.check_le(
+        "macro z within bound of const-mean micro z (shuffled)",
+        max_abs_gap(macro2.z, micro_mean2.z),
+        Z_GAP_BOUND,
     )
 
     fig2, axs2 = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
@@ -704,8 +800,10 @@ def main() -> None:
         y=0.98,
     )
     plt.tight_layout()
-    plt.show()
+    show(fig2)
+
+    return gate.report()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
