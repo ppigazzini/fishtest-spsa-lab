@@ -30,7 +30,7 @@ from .common import (
 )
 from .gate import Gate, show
 from .validate_spsa import SpsaSchedule, mean_gain_over_block
-from .validate_variance import (
+from .pentanomial import (
     InitStats,
     compute_init_stats_from_prior,
     compute_pentanomial_moments,

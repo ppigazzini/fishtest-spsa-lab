@@ -891,9 +891,13 @@ def main(argv: list[str] | None = None) -> int:
         "validate-penta",
         "delta-method Elo noise matches the pentanomial Monte Carlo",
     )
+    # No timestamp. AGENTS.md makes "byte-identical output" the refactor gate,
+    # and a clock in the output defeats it unconditionally: this was the one
+    # validator whose stdout could never match between two runs of identical
+    # code. The runs are sub-second; the timestamp carried no information.
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format="%(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
 

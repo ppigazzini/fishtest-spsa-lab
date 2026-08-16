@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
-from .validate_variance import (
+from fishtest_spsa_lab.simulator.moments import (
+    HasMu2Stats,
+    mu2_hat,
+    update_mu2_stats,
+)
+
+from .pentanomial import (
     compute_pentanomial_moments,
     gen_pentanomial_outcomes,
 )
@@ -28,17 +34,6 @@ class HasSfWeightSum(Protocol):
     """Object exposing a schedule-free weight accumulator."""
 
     sf_weight_sum: float
-
-
-@runtime_checkable
-class HasMu2Stats(Protocol):
-    """Object exposing online mu2 estimator aggregates."""
-
-    reports: float
-    sum_n: float
-    sum_s: float
-    sum_s2_over_n: float
-    mu2_init: float
 
 
 # ----- plotting -----
@@ -210,35 +205,6 @@ def sf_weighting_update(glob: HasSfWeightSum, n: int, lr: float) -> float:
     report_weight = lr * n
     glob.sf_weight_sum += report_weight
     return report_weight / glob.sf_weight_sum if glob.sf_weight_sum > 0 else 1.0
-
-
-# ----- online mu2 estimator -----
-
-
-def mu2_hat(state: HasMu2Stats) -> float:
-    """Block-averaged E[g^2] estimator from report-level (N, s) aggregates.
-
-    Before any reports arrive, returns ``state.mu2_init``.
-    """
-    if state.reports <= 0.0:
-        return state.mu2_init
-    mu = (state.sum_s / state.sum_n) if state.sum_n > 0.0 else 0.0
-    e_s2_over_n = state.sum_s2_over_n / state.reports
-    e_n = state.sum_n / state.reports
-    sigma2 = e_s2_over_n - (mu * mu) * e_n
-    sigma2 = max(sigma2, 0.0)
-    mu2 = mu * mu + sigma2
-    return min(max(mu2, 1e-12), 4.0)
-
-
-def update_mu2_stats(state: HasMu2Stats, n: int, s: float) -> None:
-    """Update mu2 aggregates AFTER using the current estimate for this report."""
-    if n <= 0:
-        return
-    state.reports += 1.0
-    state.sum_n += float(n)
-    state.sum_s += float(s)
-    state.sum_s2_over_n += (float(s) * float(s)) / float(n)
 
 
 __all__ = [

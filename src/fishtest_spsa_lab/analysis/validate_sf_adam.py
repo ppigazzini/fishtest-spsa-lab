@@ -35,7 +35,7 @@ from .common import (
     update_mu2_stats,
 )
 from .gate import Gate, show
-from .validate_variance import (
+from .pentanomial import (
     InitStats,
     compute_init_stats_from_prior,
 )
@@ -271,39 +271,24 @@ def build_const_mean_online_sequences(
     Seeds with externally computed InitStats (virtual prior).
     """
     seqs: list[tuple[list[float], list[float]]] = []
-    # Seed local aggregates from InitStats
-    reports: float = init_stats.reports if init_stats else 0.0
-    sum_n: float = init_stats.sum_n if init_stats else 0.0
-    sum_s: float = init_stats.sum_s if init_stats else 0.0
-    sum_s2_over_n: float = init_stats.sum_s2_over_n if init_stats else 0.0
-
-    def _mu_hat_local() -> float:
-        return (sum_s / sum_n) if sum_n > 0.0 else 0.0
-
-    def _mu2_hat_local() -> float:
-        if reports <= 0.0:
-            return mu2_init
-        mu = _mu_hat_local()
-        e_s2_over_n = sum_s2_over_n / reports
-        e_n = sum_n / reports
-        sigma2 = e_s2_over_n - (mu * mu) * e_n
-        sigma2 = max(sigma2, 0.0)
-        mu2 = mu * mu + sigma2
-        return min(max(mu2, 1e-12), 4.0)
+    # The estimator itself lives in simulator/moments.py; this was the third
+    # copy of it, written as a closure over four locals rather than a state
+    # object, which is why it drifted out of sight of the other two.
+    state = GlobalState(mu2_init=mu2_init)
+    if init_stats:
+        state.reports = init_stats.reports
+        state.sum_n = init_stats.sum_n
+        state.sum_s = init_stats.sum_s
+        state.sum_s2_over_n = init_stats.sum_s2_over_n
 
     for outs in outcomes_by_report:
         n = len(outs)
         s = float(sum(outs))
         mean = s / n if n > 0 else 0.0
-        g2 = _mu2_hat_local()
+        g2 = mu2_hat(state)
         seqs.append(([mean] * n, [g2] * n))
         # update stats after using them for this block
-        if n <= 0:
-            continue
-        reports += 1.0
-        sum_n += float(n)
-        sum_s += float(s)
-        sum_s2_over_n += (float(s) * float(s)) / float(n)
+        update_mu2_stats(state, n, s)
     return seqs
 
 

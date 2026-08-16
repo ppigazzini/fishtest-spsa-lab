@@ -10,6 +10,7 @@ from fishtest_spsa_lab.simulator.config import (
     TINY_EPSILON,
     SPSAConfig,
 )
+from fishtest_spsa_lab.simulator.moments import mu2_hat, update_mu2_stats
 
 
 def _apply_linear_warmup(
@@ -484,24 +485,12 @@ class SFAdamBlock(ScheduleFreeCore):
         return self.c_constant
 
     def _mu2_hat(self) -> float:
-        if self.reports <= 0.0:
-            return self.mu2_init
-
-        mu = (self.sum_s / self.sum_n) if self.sum_n > 0.0 else 0.0
-        e_s2_over_n = self.sum_s2_over_n / self.reports
-        e_n = self.sum_n / self.reports
-        sigma2 = e_s2_over_n - (mu * mu) * e_n
-        sigma2 = max(sigma2, 0.0)
-        mu2 = mu * mu + sigma2
-        return float(min(max(mu2, 1e-12), 4.0))
+        """Shared with the analysis side; see simulator/moments.py."""
+        return mu2_hat(self)
 
     def _update_mu2_stats(self, n: int, s: float) -> None:
-        if n <= 0:
-            return
-        self.reports += 1.0
-        self.sum_n += float(n)
-        self.sum_s += float(s)
-        self.sum_s2_over_n += (float(s) * float(s)) / float(n)
+        """Shared with the analysis side; see simulator/moments.py."""
+        update_mu2_stats(self, n, s)
 
     def step(
         self,
